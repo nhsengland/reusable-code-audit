@@ -2,6 +2,13 @@
 
 This repository contains a proof-of-concept audit of completed NHS internship projects to identify repeated engineering patterns and reusable code candidates for a future NHS reusable code library.
 
+## Catalog
+
+- [`catalog.md`](./catalog.md) — central human-readable overlap catalog with inline raw snippets
+- [`catalog.yml`](./catalog.yml) — machine-readable source of truth for themes, snippets, overlap counts, and reuse metadata
+
+**Headline stats:** 14 snippets extracted across 7 themes from 21 audited projects.
+
 ## Repository structure
 
 - [`audit-report.md`](./audit-report.md) — full cross-project audit findings and recommendations

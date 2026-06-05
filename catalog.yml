@@ -1,0 +1,217 @@
+meta:
+  last_updated: "2025-06-05"
+  total_projects_audited: 21
+  total_snippets: 14
+
+themes:
+  - id: synthetic-data
+    label: "Synthetic Data"
+    overlap_count: 4
+    projects: [P12, P21, P41, P11]
+  - id: nlp-text-processing
+    label: "NLP / Text Processing"
+    overlap_count: 6
+    projects: [P72, P71, P51, P33, P23, P43]
+  - id: multimodal
+    label: "Multimodal"
+    overlap_count: 4
+    projects: [P22, P31, P61, P81]
+  - id: evaluation
+    label: "Evaluation"
+    overlap_count: 2
+    projects: [P82, P71]
+  - id: explainability
+    label: "Explainability"
+    overlap_count: 4
+    projects: [P14, P24, P61, P81]
+  - id: graph-hypergraph
+    label: "Graph / Hypergraph"
+    overlap_count: 2
+    projects: [P34, P32]
+  - id: data-pipelines
+    label: "Data Pipelines"
+    overlap_count: 6
+    projects: [P33, P72, P52, P32, P51, P71]
+
+snippets:
+  - id: SD-001
+    title: "Synthetic data distribution metrics"
+    theme: synthetic-data
+    file: "code-snippets/synthetic-data/distribution_metrics.py"
+    source_projects: [P12, P21]
+    source_repos:
+      - url: "https://github.com/nhsx/SynthVAE"
+        file: "metrics.py"
+    overlap_count: 2
+    reuse_candidate: true
+    reuse_notes: "Core evaluation pattern repeated in both SynthVAE versions. Could be a standalone NHS synthetic metrics utility."
+    suggested_library_module: "nhs_reuse.synthetic.metrics"
+
+  - id: SD-002
+    title: "Experiment I/O helpers"
+    theme: synthetic-data
+    file: "code-snippets/synthetic-data/experiment_io_helpers.py"
+    source_projects: [P41]
+    source_repos:
+      - url: "https://github.com/nhsengland/NHSSynth"
+        file: "src/nhssynth/common/io.py"
+    overlap_count: 1
+    reuse_candidate: true
+    reuse_notes: "Path and file handling helpers for experiments are common utility code in synthetic model projects."
+    suggested_library_module: "nhs_reuse.common.io"
+
+  - id: NLP-001
+    title: "Prepare notes for language modelling"
+    theme: nlp-text-processing
+    file: "code-snippets/nlp-text-processing/prepare_notes_for_lm.py"
+    source_projects: [P33]
+    source_repos:
+      - url: "https://github.com/nhsx/ELM4PSIR"
+        file: "utils/prepare_notes_for_lm.py"
+    overlap_count: 1
+    reuse_candidate: true
+    reuse_notes: "Configurable note cleaning and administrative-token removal recurs in clinical text pipelines."
+    suggested_library_module: "nhs_reuse.nlp.cleaning"
+
+  - id: NLP-002
+    title: "R text cleaning pipeline"
+    theme: nlp-text-processing
+    file: "code-snippets/nlp-text-processing/clean_text_pipeline.R"
+    source_projects: [P23]
+    source_repos:
+      - url: "https://github.com/nhsx/stm-survey-text"
+        file: "R/main/functions.R"
+    overlap_count: 1
+    reuse_candidate: true
+    reuse_notes: "Survey/text preprocessing tokenization flow mirrors broader NHS text normalization patterns."
+    suggested_library_module: "nhs_reuse.nlp.r_text"
+
+  - id: MM-001
+    title: "Embedding dataset wrappers"
+    theme: multimodal
+    file: "code-snippets/multimodal/embedding_dataset_wrappers.py"
+    source_projects: [P22, P31]
+    source_repos:
+      - url: "https://github.com/nhsx/txt-ray-align"
+        file: "embeddings.py"
+    overlap_count: 2
+    reuse_candidate: true
+    reuse_notes: "Dataset wrappers and sentence-splitting utilities are reused in multimodal embedding workflows."
+    suggested_library_module: "nhs_reuse.multimodal.datasets"
+
+  - id: MM-002
+    title: "Feature name mapping by modality"
+    theme: multimodal
+    file: "code-snippets/multimodal/feature_name_mapping.py"
+    source_projects: [P61, P81]
+    source_repos:
+      - url: "https://github.com/nhsengland/mm-healthfair"
+        file: "src/utils/shap_utils.py"
+    overlap_count: 2
+    reuse_candidate: true
+    reuse_notes: "Feature-map extraction by modality is a reusable building block for multimodal explainability tooling."
+    suggested_library_module: "nhs_reuse.multimodal.features"
+
+  - id: EVAL-001
+    title: "BLEU precision evaluator"
+    theme: evaluation
+    file: "code-snippets/evaluation/bleu_precision_evaluator.py"
+    source_projects: [P82]
+    source_repos:
+      - url: "https://github.com/nhsengland/evalsense"
+        file: "evaluation/evaluators/bleu.py"
+    overlap_count: 1
+    reuse_candidate: true
+    reuse_notes: "Metric-calculator class pattern can be generalized for reusable evaluator adapters."
+    suggested_library_module: "nhs_reuse.evaluation.bleu"
+
+  - id: EVAL-002
+    title: "Retrieval metrics summarizer"
+    theme: evaluation
+    file: "code-snippets/evaluation/retrieval_metrics.py"
+    source_projects: [P22, P31]
+    source_repos:
+      - url: "https://github.com/nhsx/txt-ray-align"
+        file: "evaluate.py"
+    overlap_count: 2
+    reuse_candidate: true
+    reuse_notes: "Precision/recall/F1 summary helper can serve as shared retrieval benchmarking utility."
+    suggested_library_module: "nhs_reuse.evaluation.retrieval"
+
+  - id: XAI-001
+    title: "Fairness bootstrap confidence intervals"
+    theme: explainability
+    file: "code-snippets/explainability/fairness_bootstrap_ci.py"
+    source_projects: [P61, P81]
+    source_repos:
+      - url: "https://github.com/nhsengland/mm-healthfair"
+        file: "src/utils/fairness_utils.py"
+    overlap_count: 2
+    reuse_candidate: true
+    reuse_notes: "Bias-corrected bootstrap CI logic is broadly useful for fairness metric reporting."
+    suggested_library_module: "nhs_reuse.xai.fairness"
+
+  - id: XAI-002
+    title: "MCR feature grouping"
+    theme: explainability
+    file: "code-snippets/explainability/mcr_feature_grouping.py"
+    source_projects: [P14]
+    source_repos:
+      - url: "https://github.com/nhsx/commercial-data-healthcare-predictions"
+        file: "MCR_for_op_rf.py"
+    overlap_count: 1
+    reuse_candidate: true
+    reuse_notes: "Grouped feature indexing appears in explainability workflows and can be packaged for reuse."
+    suggested_library_module: "nhs_reuse.xai.mcr"
+
+  - id: GRAPH-001
+    title: "Hypergraph degree centrality kernel"
+    theme: graph-hypergraph
+    file: "code-snippets/graph-hypergraph/degree_centrality.py"
+    source_projects: [P34]
+    source_repos:
+      - url: "https://github.com/nhsx/hypergraph-mm"
+        file: "hypmm/centrality_utils.py"
+    overlap_count: 1
+    reuse_candidate: true
+    reuse_notes: "Numba-accelerated degree centrality kernel can be reused for disease network analytics."
+    suggested_library_module: "nhs_reuse.graph.centrality"
+
+  - id: GRAPH-002
+    title: "Hypergraph overlap coefficient"
+    theme: graph-hypergraph
+    file: "code-snippets/graph-hypergraph/overlap_coefficient.py"
+    source_projects: [P34]
+    source_repos:
+      - url: "https://github.com/nhsx/hypergraph-mm"
+        file: "hypmm/weight_functions.py"
+    overlap_count: 1
+    reuse_candidate: true
+    reuse_notes: "Overlap coefficient kernel is a reusable primitive for hypergraph similarity analysis."
+    suggested_library_module: "nhs_reuse.graph.overlap"
+
+  - id: DP-001
+    title: "Create holdout data split"
+    theme: data-pipelines
+    file: "code-snippets/data-pipelines/create_holdout_split.py"
+    source_projects: [P33]
+    source_repos:
+      - url: "https://github.com/nhsx/ELM4PSIR"
+        file: "utils/create_lm_data_split.py"
+    overlap_count: 1
+    reuse_candidate: true
+    reuse_notes: "Train/holdout and LM split generation is a common data pipeline helper."
+    suggested_library_module: "nhs_reuse.pipelines.splits"
+
+  - id: DP-002
+    title: "Setup model input JSON"
+    theme: data-pipelines
+    file: "code-snippets/data-pipelines/setup_input_json.py"
+    source_projects: [P72]
+    source_repos:
+      - url: "https://github.com/nhsengland/nlp_renal_biopsy"
+        file: "setup_input_json.py"
+    overlap_count: 1
+    reuse_candidate: true
+    reuse_notes: "Input manifest creation and path setup patterns are frequently replicated in NLP pipelines."
+    suggested_library_module: "nhs_reuse.pipelines.inputs"
