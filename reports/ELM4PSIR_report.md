@@ -53,9 +53,9 @@ indicate copy-driven drift.
   Overlaps with **priv-lm-health** (`downstream_tasks/finetune_roberta_30dayReadmission.py`):
   shared `TrainingArguments`/`Trainer` scaffolding (LM pre-training here, classification
   fine-tuning there).
-- **Free-text cleaning (cross-repo)** — `evidence/deduplication_free_text_cleaning/`.
-  ELM4PSIR's `utils/preprocess_utils.py` overlaps with nlp_renal_biopsy and stm-survey-text:
-  the same clinical/survey token-cleaning recipe reimplemented across repos.
+- **Free-text cleaning (cross-repo)** — `evidence/deduplication_clinical_free_text_cleaning/`.
+  ELM4PSIR's `utils/preprocess_utils.py` overlaps with nlp_renal_biopsy, stm-survey-text and
+  P43_LTHMedCat: the same clinical/survey token-cleaning recipe reimplemented across repos.
 - **Random-seed setting** — referenced in `evidence/deduplication_random_seed_setting/`
   (primary participants NHSSynth, SynthVAE): ELM4PSIR's seed-setting fits the same
   set-all-RNGs utility pattern noted there.
