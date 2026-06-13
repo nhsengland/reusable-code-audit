@@ -1,0 +1,20 @@
+# Source: txt-ray-align/chexpert/loader/load.py (Lines 73-91)
+
+    def clean(self, report):
+        """Clean the report text."""
+        lower_report = report.lower()
+        # Change `and/or` to `or`.
+        corrected_report = re.sub("and/or", "or", lower_report)
+        # Change any `XXX/YYY` to `XXX or YYY`.
+        corrected_report = re.sub(
+            "(?<=[a-zA-Z])/(?=[a-zA-Z])", " or ", corrected_report
+        )
+        # Clean double periods
+        clean_report = corrected_report.replace("..", ".")
+        # Insert space after commas and periods.
+        clean_report = clean_report.translate(self.punctuation_spacer)
+        # Convert any multi white spaces to single white spaces.
+        clean_report = " ".join(clean_report.split())
+        # Remove empty sentences
+        clean_report = re.sub(r"\.\s+\.", ".", clean_report)
+

@@ -1,0 +1,122 @@
+# Source: priv-lm-health/privlm/mi_attack.py (Lines 26-146)
+def get_subject_ids(file_path_list):
+    print("GETTING SUBJECT IDS")
+    all_subject_ids = []
+    for file_path in tqdm(file_path_list):
+        data_df = pd.read_csv(file_path)
+        subject_ids = list(set(data_df["SUBJECT_ID"].to_list()))
+        all_subject_ids.extend(subject_ids)
+    all_subject_ids = list(set(all_subject_ids))
+    return all_subject_ids
+
+
+def create_member_df(training_files):
+    print("CREATING MEMBER DATAFRAME")
+    member_df = pd.DataFrame(columns=["SUBJECT_ID", "TEXT"])
+    for file_path in tqdm(training_files):
+        tmp_df = pd.read_csv(file_path)[["SUBJECT_ID", "TEXT"]]
+        member_df = pd.concat([member_df, tmp_df], ignore_index=True)
+        print(len(member_df))
+    return member_df
+
+
+def create_non_member_df(non_training_files, non_member_subject_ids):
+    print("CREATING NON-MEMBER DATAFRAME")
+    non_member_df = pd.DataFrame(columns=["SUBJECT_ID", "TEXT"])
+    for file_path in tqdm(non_training_files):
+        df = pd.read_csv(file_path)[["SUBJECT_ID", "TEXT"]]
+        tmp_df = df.loc[df["SUBJECT_ID"].isin(non_member_subject_ids)]
+        non_member_df = pd.concat([non_member_df, tmp_df], ignore_index=True)
+        print(len(non_member_df))
+    return non_member_df
+
+
+def prep_mimic_for_MI(
+    input_df, number_of_patients=90, number_of_sentences=4072, min_len_sentences=20
+):
+    raw_data = input_df[["SUBJECT_ID", "TEXT"]]
+    # select patients
+    all_subject_ids = list(raw_data["SUBJECT_ID"])
+    unique_subject_ids = list(set(all_subject_ids))
+    random.shuffle(unique_subject_ids)
+    selected_subject_ids = unique_subject_ids[:number_of_patients]
+    assert len(selected_subject_ids) == number_of_patients
+    # get rows for selected patients
+    selected_subject_rows = raw_data.loc[
+        raw_data["SUBJECT_ID"].isin(selected_subject_ids)
+    ]
+    selected_subject_text = list(selected_subject_rows["TEXT"])
+    # select sentence
+    all_sentences = []
+    print("Preparing Sentences")
+    for text in tqdm(selected_subject_text):
+        list_of_sentences = nltk.sent_tokenize(text)
+        all_sentences.extend(list_of_sentences)
+    unique_sentences = list(set(all_sentences))
+    random.shuffle(unique_sentences)
+    long_sentences = [x for x in unique_sentences if len(x) >= min_len_sentences]
+    selected_sentence_for_MI = long_sentences[:number_of_sentences]
+    assert len(selected_sentence_for_MI) == number_of_sentences
+    return selected_sentence_for_MI
+
+
+def prep_i2b2_for_MI(
+    input_dir_path,
+    number_of_patients=90,
+    number_of_sentences=4072,
+    min_len_sentences=20,
+):
+    file_list = file_list_folders(input_dir_path, ".xml")
+
+    print("Selecting Patients")
+    all_subject_ids = []
+    for file in tqdm(file_list):
+        filename = os.path.splitext(file)[0]
+        subject_id = os.path.basename(filename)[0:3]
+        all_subject_ids.append(subject_id)
+    sub_ids_list = list(set(all_subject_ids))
+    random.shuffle(sub_ids_list)
+    print(len(sub_ids_list))
+    selected_subject_ids = sub_ids_list[:number_of_patients]
+    assert len(selected_subject_ids) == number_of_patients
+
+    print("Preparing Sentences")
+    all_sentences = {}
+    for file in tqdm(file_list):
+        filename = os.path.splitext(file)[0]
+        subject_id = os.path.basename(filename)[0:3]
+        if subject_id in selected_subject_ids:
+            with open(file, "r") as f:
+                data = f.read()
+            Bs_data = BeautifulSoup(data, "xml")
+            b_text = Bs_data.find_all("TEXT")
+            file_sentences = []
+            if b_text:
+                for text in b_text:
+                    list_of_sentences = nltk.sent_tokenize(text.string)
+                    list_of_sentences = list(set(list_of_sentences))
+                    file_sentences.append(list_of_sentences)
+            if file_sentences:
+                if subject_id not in all_sentences.keys():
+                    all_sentences[subject_id] = file_sentences
+                else:
+                    all_sentences[subject_id].extend(file_sentences)
+
+    # get sentences for selected patients
+    selected_subject_texts = [
+        [item for sublist in v for item in sublist]
+        for k, v in all_sentences.items()
+        if k in selected_subject_ids
+    ]
+    selected_subject_texts = [
+        item for sublist in selected_subject_texts for item in sublist
+    ]
+    print(len(selected_subject_texts))
+
+    # select sentences
+    long_sentences = [x for x in selected_subject_texts if len(x) >= min_len_sentences]
+    unique_sentences = list(set(long_sentences))
+    random.shuffle(unique_sentences)
+    selected_sentence_for_MI = unique_sentences[:number_of_sentences]
+    assert len(selected_sentence_for_MI) == number_of_sentences
+    return selected_sentence_for_MI

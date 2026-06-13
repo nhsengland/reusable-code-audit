@@ -1,0 +1,30 @@
+# Source: mm-healthfair/src/utils/preprocessing.py (Lines 746-763)
+def clean_notes(notes: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:
+    """
+    Clean notes data by removing special characters and extra whitespaces.
+
+    Args:
+        notes (pl.DataFrame | pl.LazyFrame): Notes data.
+
+    Returns:
+        pl.DataFrame or pl.LazyFrame: Cleaned notes data.
+    """
+    # Remove __ and any extra whitespaces
+    notes = notes.with_columns(
+        target=pl.col("target")
+        .str.replace_all(r"___", " ")
+        .str.replace_all(r"\s+", " ")
+    )
+    # notes = notes.with_columns(target=pl.col("target").str.replace_all(r"\s+", " "))
+    return notes
+
+# Source: mm-healthfair/src/utils/mimiciv.py (Lines 440-448)
+    ## Replace more than one back-to-back '=' characters with ''
+    adm_notes = adm_notes.with_columns(pl.col("target").str.replace_all(r"==+", ""))
+
+    ### Get full notes history for each eligible patient
+    adm_notes = adm_notes.filter(
+        pl.col("hadm_id").is_in(adm_lkup.select("hadm_id").to_series())
+    )
+
+    return adm_notes.lazy() if use_lazy else adm_notes

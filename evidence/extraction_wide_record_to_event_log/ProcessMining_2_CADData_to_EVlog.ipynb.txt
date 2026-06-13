@@ -1,0 +1,29 @@
+# Source: ProcessMining/Notebooks/2_CADData_to_EVlog.ipynb (Cell 11)
+npc2=len(df.patientID.unique())
+EL_df=pd.DataFrame(columns=['Patient_ID','Activity','Timestamp'])
+n=0
+for a in df.patientID.unique():
+    df1=[]
+    df1=df[df.patientID==a]
+    
+    pi=[df1.patientID.values[0]]*18
+    act=[ 'Incident_Time','Originated', 'Mobile', 'Arrive_scene', 'First_NEWS_Time','LAST_NEWS_Time', 'Depart_scene', 'Arrive_dest', 'Care_transfer']
+    tmstp=[df1['Incident_Time'].values[0],df1['Originated'].values[0],df1['Mobile'].values[0],df1['Arrive_scene'].values[0],df1['First_NEWS_Time'].values[0],df1['LAST_NEWS_Time'].values[0],df1['Depart_scene'].values[0],df1['Arrive_dest'].values[0],df1['Care_transfer'].values[0]]
+    #drgatt=['nan']*18
+    #pi,act,tmstp,drgatt=split_drug_activity(pi,act,tmstp,drgatt,df1)
+    
+    
+    df2=[]
+    df2=pd.DataFrame(list(zip(pi,act,tmstp)),columns=['Patient_ID','Activity','Timestamp'])
+    df2=df2[df2['Timestamp'].notna()]
+    EL_df=pd.concat([EL_df,df2],ignore_index=True,axis=0)
+    n+=1
+    if n%100==0:
+        print(f"{n} patients out of {npc2}: ",n/npc2*100,"%")
+    
+
+# Source: ProcessMining/Notebooks/2_CADData_to_EVlog.ipynb (Cell 13)
+EL_df= EL_df.sort_values(['Patient_ID','Timestamp'])
+EL_df=EL_df.reset_index(drop=True)
+EL_df['Timestamp'] = pd.to_datetime(EL_df['Timestamp'], format="%Y/%m/%d %H:%M:%S")
+EL_df.head(60)

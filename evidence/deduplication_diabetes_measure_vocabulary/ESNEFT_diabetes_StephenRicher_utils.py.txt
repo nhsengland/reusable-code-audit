@@ -1,0 +1,58 @@
+# Source: ESNEFT_diabetes_StephenRicher/scripts/utils.py (Lines 95-107)
+CTV3Desc_rename = ({
+    'Haemoglobin A1c level': 'HbA1c',
+    'Body mass index - observation': 'BMI',
+    'Haemoglobin A1c level - IFCC standardised': 'HbA1c (IFCC)',
+    'GFR calculated abbreviated MDRD': 'GFR',
+    'O/E - Diastolic BP reading': 'Diastolic BP',
+    'Urine microalbumin level': 'Urine Microalbumin',
+    'Never smoked tobacco': 'Never Smoked',
+    'Type II diabetes mellitus': 'Type 2 Diabetes',
+    'Haemoglobin concentration': 'Hemoglobin',
+    'Type I diabetes mellitus': 'Type 1 Diabetes',
+    'GFR calculated Cockcroft-Gault formula': 'GFR-Cockcroft'
+})
+
+# Source: ESNEFT_diabetes_StephenRicher/scripts/utils.py (Lines 167-196)
+type1_default = ([
+    'Type 1 Diabetes',
+    'Type I diabetic dietary review',
+    'Type I diabetes mellitus without complication',
+    'Type I diabetes mellitus - poor control',
+    'Type I diabetes mellitus with retinopathy'
+])
+
+
+type2_default = ([
+    'Type 2 Diabetes',
+    'Type II diabetic dietary review',
+    'Type II diabetes mellitus with persistent proteinuria',
+    'Type II diabetes mellitus - poor control',
+    'Type II diabetes mellitus with retinopathy'
+])
+
+
+def summariseByPatient(
+        data: pd.DataFrame, type1: list = None,
+        type2: list = None):
+    events = data['CTV3Desc'].unique()
+    type1 = type1_default if type1 is None else type1
+    type2 = type2_default if type2 is None else type2
+    summary = (
+        data.groupby('patientID')
+        .apply(_summarise, events=events, type1=type1, type2=type2)
+        .apply(lambda x: pd.Series(x))
+    )
+    return summary
+
+# Source: ESNEFT_diabetes_StephenRicher/scripts/utils.py (Lines 240-249)
+    measures = ([
+        'BMI', 'HbA1c (IFCC)', 'GFR', 'HbA1c',
+        'Diastolic BP', 'Urine Microalbumin'
+    ])
+    for measure in measures:
+        byMeasure = sub.loc[
+              (sub['CTV3Desc'] == measure)
+            & (sub['RecodingLabel'] != 'None')
+            & (sub['RecordingValue'].notna())
+        ].sort_values('CodeEventDate')

@@ -1,0 +1,48 @@
+# Source: txt-ray-align/data/get_subset.py (Lines 90-136)
+
+    # Take subset based on studies rather than images
+    unique_study_ids = pd.unique(df["study_id"].values)
+    total_len = len(unique_study_ids)
+    subset_fraction = args.subset_fraction
+    subset_len = int(total_len * subset_fraction)
+
+    sample = random.sample(list(unique_study_ids), subset_len)
+    assert len(sample) > 0
+
+    train_fraction = args.train_fraction
+    train_len = int(subset_len * train_fraction)
+    # test set as fraction of (1 - train_fraction)
+    test_fraction = args.test_fraction
+    test_len = int((subset_len - train_len) * test_fraction)
+
+    sample_train = random.sample(sample, train_len)
+    assert len(sample_train) > 0
+    sample_remainder = list(set(sample) - set(sample_train))
+    sample_test = random.sample(sample_remainder, test_len)
+    sample_val = list(set(sample_remainder) - set(sample_test))
+
+    print("Train studies:", len(sample_train))
+    print("Val studies:", len(sample_val))
+    print("Test studies:", len(sample_test))
+
+    assert (
+        len(set(sample_train).intersection(sample_test).intersection(sample_val)) == 0
+    )
+
+    df_train = get_sample_df(df, sample_train)
+    df_val = get_sample_df(df, sample_val)
+    df_test = get_sample_df(df, sample_test)
+
+    print("Train images:", len(df_train))
+    print("Val images:", len(df_val))
+    print("Test images:", len(df_test))
+
+    if args.output_folder is None:
+        sample_folder = f"./len{subset_len}_train{train_fraction}_test{test_fraction}"
+    else:
+        sample_folder = args.output_folder
+    if not os.path.exists(sample_folder):
+        os.makedirs(sample_folder)
+    df_train.to_csv(f"{sample_folder}/train.csv")
+    df_val.to_csv(f"{sample_folder}/val.csv")
+    df_test.to_csv(f"{sample_folder}/test.csv")

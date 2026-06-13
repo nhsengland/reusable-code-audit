@@ -1,0 +1,91 @@
+# Source: priv-lm-health-extended/memorisation/run_metrics.py (Lines 25-114)
+class Pipeline:
+    """Wrapper for text generation."""
+
+    def __init__(
+        self,
+        model_id,
+        model_class=AutoModelForCausalLM,
+        padding_side="left",
+        device="cuda",
+        device_map=None,
+        torch_dtype=torch.float16,
+        cache_dir=os.environ.get("HF_HOME"),
+        low_cpu_mem_usage=True,
+    ):
+        self.device = device
+        self.dtype = torch_dtype
+        self.model = model_class.from_pretrained(
+            model_id,
+            device_map=device_map,
+            cache_dir=cache_dir,
+            torch_dtype=self.dtype,
+            low_cpu_mem_usage=low_cpu_mem_usage,
+        )
+        if self.device and not device_map:
+            self.model.to(self.device)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_id, use_fast=False, padding_side=padding_side, cache_dir=cache_dir
+        )
+        self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.model.generation_config.pad_token_id = self.tokenizer.pad_token_id
+
+    def generate_batches(
+        self,
+        data,
+        batch_size=48,
+        do_sample=True,
+        temperature=0.9,
+        top_k=50,
+        top_p=0.9,
+        max_new_tokens=200,
+        repetition_penalty=1.0,
+        return_full_text=False,
+    ):
+        for chunk in make_chunk(data, batch_size):
+            inputs = self.tokenizer(chunk, return_tensors="pt", padding=True)
+            inputs = inputs.to(self.device)
+            prompt_ends = [
+                len(_)
+                for _ in self.tokenizer.batch_decode(
+                    inputs.input_ids,
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=False,
+                )
+            ]
+            generated_ids = self.model.generate(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                # pad_token_id=self.tokenizer.eos_token_id,
+                do_sample=do_sample,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+                max_new_tokens=max_new_tokens,
+            )
+            outputs = self.tokenizer.batch_decode(
+                generated_ids, skip_special_tokens=True
+            )
+            if return_full_text:
+                for output in outputs:
+                    yield output
+            else:
+                for output, prompt_end in zip(outputs, prompt_ends):
+                    yield output[prompt_end:]
+
+
+def make_chunk(lst, n):
+    # Adapted from: https://stackoverflow.com/questions/312443/
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]
+
+
+def make_prefix_suffix(texts):
+    # Follow Kassem et al., 2024's prefix-suffix cutoff: 33% as prefix, 67% as suffix
+    prefixes, suffixes = [], []
+    for t in texts:
+        idx = len(t) // 3
+        prefixes.append(t[:idx])
+        suffixes.append(t[idx:])
+    return prefixes, suffixes

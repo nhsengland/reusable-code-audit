@@ -1,0 +1,100 @@
+# Source: txt-ray-align/models/wrapper.py (Lines 22-81 and 658-694)
+class VariableSizeBERTModel(nn.Module):
+    def __init__(
+        self,
+        bert_model,
+        hidden_size,
+        embed_dim,
+        freeze_encoder,
+        freeze_layers,
+        add_projection,
+    ):
+        """A wrapper for the text encoder for freezing and changing embed size"""
+
+        super().__init__()
+
+        self.add_projection = add_projection
+
+        self.bert_model = bert_model
+
+        if freeze_encoder:
+            if freeze_layers == -1:
+                set_parameter_requires_grad(self.bert_model, True)
+                print("Text model fully frozen:")
+            else:
+                freeze_layers = range(0, 1 + freeze_layers)
+                for name, param in self.bert_model.named_parameters():
+                    for layer in freeze_layers:
+                        if f"layer.{layer}." in name or "embeddings" in name:
+                            param.requires_grad = False
+                            print("Text layer frozen:", name)
+
+        # set_parameter_requires_grad(self.bert_model, freeze_encoder)
+        if self.add_projection:
+            print(f"Adding projection from dim {hidden_size} to {embed_dim}")
+            self.linear = nn.Linear(hidden_size, embed_dim)
+
+    def forward(self, input_ids=None, attention_mask=None, token_type_ids=None):
+
+        if token_type_ids is not None:
+            sequence_output = self.bert_model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+            )[0]
+        else:
+            sequence_output = self.bert_model(
+                input_ids=input_ids, attention_mask=attention_mask
+            )[0]
+        assert input_ids.shape[0] == sequence_output.shape[0]
+        assert input_ids.shape[1] == sequence_output.shape[1]
+
+        sum_embeddings = torch.sum(
+            sequence_output * attention_mask.unsqueeze(-1), dim=1
+        )
+        sum_mask = torch.clamp(
+            torch.sum(attention_mask, dim=1, keepdims=True), min=1e-9
+        )
+        out = sum_embeddings / sum_mask
+        if self.add_projection:
+            out = self.linear(out)
+        return out
+
+# --- Lines 658-694 ---
+def init_txt_model(
+    model_name,
+    embed_dim,
+    freeze_encoder=False,
+    freeze_layers=-1,
+    add_projection=False,
+    local_files_only=False,
+):
+
+    model_dict = {
+        "declutr": "johngiorgi/declutr-sci-base",
+        "bioclinicalbert": "emilyalsentzer/Bio_ClinicalBERT",
+        "distilbert": "distilbert-base-uncased",
+    }
+
+    if model_name in model_dict.keys():
+        model_name = model_dict[model_name]
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name, local_files_only=local_files_only
+        )
+        txt_encoder = AutoModel.from_pretrained(
+            model_name, local_files_only=local_files_only
+        )
+        hidden_size = BertConfig(model_name).hidden_size
+        txt_encoder = VariableSizeBERTModel(
+            txt_encoder,
+            hidden_size,
+            embed_dim,
+            freeze_encoder,
+            freeze_layers,
+            add_projection,
+        )
+    else:
+        print(f"Choose from {model_dict.keys()}, exiting...")
+        exit(1)
+
+    return txt_encoder, tokenizer

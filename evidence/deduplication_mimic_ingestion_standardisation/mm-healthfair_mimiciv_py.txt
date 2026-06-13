@@ -1,0 +1,98 @@
+# Source: mm-healthfair/src/utils/mimiciv.py (Lines 14-110)
+def read_admissions_table(
+    mimic4_path: str,
+    use_lazy: bool = False,
+    verbose: bool = True,
+    ext_stay_threshold: int = 7,
+) -> pl.LazyFrame | pl.DataFrame:
+    """
+    Read and preprocess the admissions table from MIMIC-IV, setting up the ED population.
+
+    Args:
+        mimic4_path (str): Path to directory containing MIMIC-IV hospital module files.
+        use_lazy (bool): If True, return a Polars LazyFrame. Otherwise, return a DataFrame.
+        verbose (bool): If True, print summary statistics.
+        ext_stay_threshold (int): Threshold (in days) for setting extended stay outcome.
+
+    Returns:
+        pl.LazyFrame | pl.DataFrame: Admissions table with additional columns.
+    """
+    admits = pl.read_csv(
+        os.path.join(mimic4_path, "admissions.csv.gz"),
+        columns=[
+            "subject_id",
+            "hadm_id",
+            "admittime",
+            "dischtime",
+            "deathtime",
+            "edregtime",
+            "edouttime",
+            "insurance",
+            "marital_status",
+            "race",
+            "admission_location",
+            "discharge_location",
+        ],
+        dtypes=[
+            pl.Int64,
+            pl.Int64,
+            pl.Datetime,
+            pl.Datetime,
+            pl.Datetime,
+            pl.Datetime,
+            pl.Datetime,
+            pl.String,
+            pl.String,
+            pl.String,
+            pl.String,
+            pl.String,
+        ],
+        try_parse_dates=True,
+    )
+
+    admits = admits.filter(
+        pl.col("edregtime").is_not_null()
+        & pl.col("edouttime").is_not_null()
+        & pl.col("marital_status").is_not_null()
+        & pl.col("race").is_not_null()
+        & pl.col("insurance").is_not_null()
+    )
+    if verbose:
+        print(
+            "Number of admissions with complete data:",
+            admits.shape[0],
+            admits.select("subject_id").n_unique(),
+        )
+
+    admits = admits.filter(
+        (pl.col("edregtime") < pl.col("admittime"))
+        & (pl.col("edregtime") < pl.col("dischtime"))
+        & (pl.col("edouttime") < pl.col("dischtime"))
+        & (pl.col("edouttime") > pl.col("edregtime"))
+        & (pl.col("admittime") < pl.col("dischtime"))
+    )
+    if verbose:
+        print(
+            "Number of admissions after timestamp validation:",
+            admits.shape[0],
+            admits.select("subject_id").n_unique(),
+        )
+
+    admits = admits.with_columns(
+        (
+            (pl.col("dischtime") - pl.col("admittime")).dt.seconds() / (24 * 60 * 60)
+        ).alias("los_days")
+    )
+
+    admits = admits.with_columns(
+        (pl.col("los_days") > ext_stay_threshold).cast(pl.Int8).alias("ext_stay_7")
+    )
+    if verbose:
+        print(
+            f'Subjects with extended stay > 7 days: {admits.filter(pl.col("ext_stay_7") == 1).select("subject_id").n_unique()}, % of pts: {admits.filter(pl.col("ext_stay_7") == 1).select("subject_id").n_unique() / admits.select("subject_id").n_unique() * 100:.2f}'
+        )
+
+    print("Collected admissions table and linked ED attendances..")
+    return admits.lazy() if use_lazy else admits
+
+

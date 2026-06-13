@@ -1,0 +1,69 @@
+# Source: nlp_renal_biopsy/src/utils/json.py (Lines 49-116)
+def parse_json_string(input_string: str) -> Dict[str, Any]:
+    """
+    Parse a string containing a JSON dictionary, handling common formatting issues.
+
+    Args:
+        input_string: String containing JSON data
+
+    Returns:
+        Parsed dictionary
+
+    Raises:
+        ValueError: If the input can't be parsed as valid JSON
+    """
+    try:
+        # Find the outermost JSON dictionary
+        start_index = input_string.find("{")
+        end_index = input_string.rfind("}") + 1
+
+        if start_index == -1 or end_index == 0:
+            raise ValueError("No JSON dictionary found in input string")
+
+        json_string = input_string[start_index:end_index]
+
+        # Ensure dictionary keys are properly quoted
+        json_string = re.sub(r'([{,])\s*([^":\s]+)\s*:', r'\1 "\2":', json_string)
+
+        return json.loads(json_string)
+
+    except (json.JSONDecodeError, IndexError) as e:
+        raise ValueError(f"Failed to parse JSON string: {str(e)}") from e
+
+
+def process_llm_response(
+    generated_report: Union[Dict[str, Any], str],
+    report_template: Dict[str, Any],
+    keys_to_extract: List[str],
+) -> Dict[str, Any]:
+    """
+    Process a single LLM response and extract specified keys.
+
+    Args:
+        generated_report: Raw LLM response (either a dictionary with
+            'response' key or direct string)
+        report_template: Template dictionary to fill
+        keys_to_extract: Keys to extract from the LLM response
+
+    Returns:
+        Updated report with extracted values
+    """
+    processed_report = copy.deepcopy(report_template)
+
+    try:
+        # Handle both string and dictionary inputs
+        response_text = (
+            generated_report["response"]
+            if isinstance(generated_report, dict)
+            else generated_report
+        )
+        response_content = parse_json_string(response_text)
+
+        for key in keys_to_extract:
+            if key in response_content:
+                processed_report[key] = str(response_content[key])
+    except (KeyError, ValueError) as e:
+        print(f"Error processing LLM response: {e}")
+        print(f"Raw response: {generated_report}")
+
+    return processed_report

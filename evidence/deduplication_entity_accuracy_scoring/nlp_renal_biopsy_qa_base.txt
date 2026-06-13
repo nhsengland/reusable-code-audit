@@ -1,0 +1,44 @@
+# Source: nlp_renal_biopsy/src/modelling/qa_base.py (Lines 103-145)
+    def calculate_entity_accuracy(
+        self,
+        all_scores: List[Dict[str, float]],
+    ) -> Dict:
+        """
+        Calculate accuracy for each entity from evaluation scores.
+        
+        Args:
+            all_scores: List of dictionaries containing entity scores from evaluate()
+            entity_to_info_map: Dictionary mapping entities to their metadata
+            
+        Returns:
+            Dictionary containing accuracy statistics for each entity
+        """
+        # Initialise results dictionary
+        results = {entity: {
+            'correct': 0,
+            'total': len(all_scores),
+        } for entity in self.entity_guidelines.entity_to_info_map.keys()}
+                
+        # Process all scores
+        for report_scores in all_scores:
+            for entity, score in report_scores.items():
+                results[entity]['correct'] += score
+        
+        # Calculate percentages
+        for entity in results:
+            total = results[entity]['total']
+            correct = results[entity]['correct']
+            results[entity]['accuracy'] = round((correct/total) * 100, 1)
+            
+        # Print results
+        print("\nAccuracy per entity:")
+        print("=" * 60)
+        print(f"{'Entity':30} {'Score':15} {'Type':15}")
+        print("-" * 60)
+        
+        for entity, scores in results.items():
+            entity_type = self.entity_guidelines.entity_to_info_map[entity][1]
+            score_str = f"{scores['correct']}/{scores['total']} ({scores['accuracy']}%)"            
+            print(f"{entity:30} {score_str:15} {entity_type:15}")
+        
+        return results

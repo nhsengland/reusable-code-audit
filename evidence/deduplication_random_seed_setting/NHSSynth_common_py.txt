@@ -1,0 +1,12 @@
+# Source: NHSSynth/src/nhssynth/common/common.py (Lines 10-20)
+def set_seed(seed: Optional[int] = None) -> None:
+    """
+    (Potentially) set the seed for numpy, torch and random. If no seed is provided, nothing happens.
+
+    Args:
+        seed: The seed to set.
+    """
+    if seed:
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        random.seed(seed)

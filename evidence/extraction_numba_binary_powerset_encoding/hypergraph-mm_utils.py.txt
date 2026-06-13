@@ -1,0 +1,401 @@
+# Source: hypergraph-mm/hypmm/utils.py (Lines 112-511)
+###############################################################################
+# 2.BINARY ENCODING OF INDIVIDUALS
+###############################################################################
+
+
+@numba.njit(
+    nogil=True,
+    fastmath=True,
+)
+def binary(num, width=13):
+    """
+    JIT compiled function to convert an integer to a binary string of length
+    specified by width. Note that this implementation is heavily based on the
+    numpy.binary_repr implementation to compile with Numba
+
+    INPUTS:
+    --------------------
+        num (integer) : Integer to convert to binary string
+
+        width (integer) : Length of binary string
+    """
+    # Make sure width has enough bit size to store number
+    # if 2**width < num:
+    #    raise ValueError(f"Binwidth cannot store integer. Make sure
+    # 2**width > {num}")
+
+    # Initialise binary array of length width
+    binary_arr = np.zeros((width), dtype=np.uint8)
+
+    # If number is not 0, loop over width and repeatedly check if number of
+    # divisible by 2 and accunulate binary responses
+    if num != 0:
+        for i in range(width):
+            if num % 2 == 1:
+                binary_arr[i] = 1
+            else:
+                binary_arr[i] = 0
+            num = num // 2
+
+    return binary_arr
+
+
+@numba.njit(
+    nogil=True,
+    fastmath=True,
+)
+def num_2_disease(number, disease_cols):
+    """
+    Given an integer, convert to binary and relate it to the structure of
+    diseases in the original binary matrix, outputting the binary array
+    identifying which diseases the number represents, but also a list of the
+    disease names
+
+    INPUTS:
+    ---------------
+        number (int) : Number in [2**0, 2**n_diseases-1]
+
+        disease_cols (np.array, dtype="<U24") : Array of of disease names.
+    """
+    # Convert dictionary disease keys to list and extract number of diseases
+    n_diseases = disease_cols.shape[0]
+
+    # Convert number to binary and tag on remaining zeros depending on how
+    # large number is
+    diseases_arr = binary(number, n_diseases)
+    node_no = np.where(diseases_arr)[0].astype(np.int8)
+
+    # Output string array of diseases the number represents
+    diseases = disease_cols[node_no]
+
+    return diseases_arr, node_no, diseases, len(diseases)
+
+
+@numba.njit(fastmath=True, nogil=True)
+def compute_bin_to_int(data):
+    """
+    For set of binary flag data, return the unique integer representation of
+    each row (where each row is assumed to be a binary string).
+
+
+    INPUTS:
+    -----------------
+        data (np.array, dtype=np.uint8) : Binary matrix whose rows are to be
+        converted to a unique integer representation.
+    """
+    # Initialise array to store integer representations
+    N_rows, N_cols = data.shape
+    int_repr = np.empty(N_rows, dtype=np.int64)
+    N_dis_arr = np.empty(N_rows, dtype=np.int64)
+
+    # Convert each row from binary representation to unique integer
+    # representation
+    for i in range(N_rows):
+        elem = data[i]
+        hyperedge = elem[elem != -1].astype(np.int64)
+        int_repr[i] = (2**hyperedge).sum()
+        N_dis_arr[i] = hyperedge.shape[0]
+
+    return int_repr, N_dis_arr
+
+
+@numba.njit(fastmath=True, nogil=True)
+def compute_integer_repr(data, inds, disease_cols):
+    """
+    For set of binary flag data and a subset of columns specified by inds,
+    return the unique integer representation of each row (where each row is
+    assumed to be a binary string).
+
+    Note that with the addition of inds, this acts as a mask and will exclude
+    any binary response to those columns not in inds
+
+    INPUTS:
+    -----------------
+        data (np.array, dtype=np.uint8) : Binary matrix whose rows are to be
+        converted to a unique integer representation.
+
+        inds (np.array, dtype=np.int8) : Array of column indexes to use to
+        compute integer representation with.
+
+        disease_cols (np.array, dtype="<U24") : Array of of disease names.
+    """
+    # Number of diseases of interest, set binary responses of columns those not
+    # in inds to 0
+    max_n = (2**inds).sum() + 1
+    n_ind_diseases = inds.shape[0]
+    n_obs, n_diseases = data.shape
+
+    # Convert each row from binary representation to unique integer
+    # representation subtracting the number of 0 responses (since 2**0 = 1) and
+    # then add to prevalence array
+    prev_arr = np.zeros((max_n), dtype=np.int64)
+    for i in range(n_obs):
+        ind_int = 0
+        for j in range(n_ind_diseases):
+            ind_int += data[i, inds[j]] * 2 ** inds[j]
+        prev_arr[ind_int] += 1
+
+    return prev_arr
+
+
+@numba.njit(fastmath=True, nogil=True)
+def comp_pwset_prev(binmat, worklist, disease_cols):
+    """
+    Compute the prevalence array when using Power contribution for computing
+    hyperedges
+
+    INPUTS:
+    -----------------
+    binmat (np.array, dtype=np.uint8) : Binary flag matrix.
+
+    worklist (np.array, dtype=np.int8) : Hyperedge worklist
+
+    disease_cols (np.array, dtype="<U24") : Disease column titles
+    """
+    # Initialise hyperedge prevalence array
+    n_diseases = disease_cols.shape[0]
+    max_hyperedges = 2**n_diseases
+    hyperedge_prev = np.zeros(max_hyperedges, dtype=np.int64)
+
+    # Loop over worklist and apply
+    for elem in worklist:
+        hyperedge = elem[elem != -1].astype(np.int64)
+        hyper_idx = (2**hyperedge).sum()
+        pwset_prev = compute_integer_repr(binmat, hyperedge, disease_cols)[-1]
+        hyperedge_prev[hyper_idx] = pwset_prev
+
+    return hyperedge_prev
+
+
+###############################################################################
+# 3. SET MANIPULATION AND POWER SET GENERATION IN NUMBA
+###############################################################################
+
+
+@numba.njit(fastmath=True, nogil=True)
+def create_empty_list(value=0):
+    """
+    Build JIT-compiled empty integer list container since Numba doesn't like us
+    specifying an empty list on its own.
+
+    INPUTS:
+    ----------------
+        value (int/float/str) : Integer/float/string value to determine data
+        type of list.
+    """
+
+    # Initialise a non-empty list of integers/floats and clear elements
+    # return the container
+    alist = numba.typed.List([value])
+    alist.clear()
+
+    return alist
+
+
+@numba.njit(fastmath=True, nogil=True)
+def create_set_union(arr1, arr2):
+    """
+    Compute the union of two lists by converting them to sets and taking union
+
+    INPUTS:
+    ---------------------
+        arr1 (np.array, dtype=np.int8) : First array of integers of dtype
+        np.int8.
+
+        arr2 (np.array, dtype=np.int8) : Second list of integers of dtype
+        np.int8.
+    """
+    # Form union of lists after converting to set
+    union = set(arr1).union(set(arr2))
+
+    return union
+
+
+@numba.njit(fastmath=True, nogil=True)
+def concatenate(arr1, arr2):
+    """
+    Compute the union of two lists by converting them to sets and taking union
+
+    INPUTS:
+    ---------------------
+        arr1 (np.array, dtype=np.int8) : First array of integers of dtype
+        np.int8.
+
+        arr2 (np.array, dtype=np.int8) : Second list of integers of dtype
+        np.int8.
+    """
+    # Form union of lists after converting to set
+    n1 = arr1.shape[0]
+    n2 = arr2.shape[0]
+    n = n1 + n2
+    output = np.empty((n), dtype=arr1.dtype)
+    output[:n1] = arr1
+    output[n1:] = arr2
+
+    return output
+
+
+@numba.njit(fastmath=True, nogil=True)
+def generate_powerset(arr, full=False, rem_single=False):
+    """
+    JIT compiled version of creating the powerset from an array of type np.int8
+
+    Function outputs a list of lists containing the power set of the specified
+    n-tuple, ignoring the empty set and full set of elements in tuple.
+
+    INPUTS:
+    ----------------
+        arr (np.array, dtype=np.int8) : Numpy array of dtype np.int8.
+
+        full (bool): Flag to include last element of power set, i.e. all
+        members of arr.
+    """
+    # Initialise empty lest in power_set as the "empty set"
+    power_set = [np.zeros((0), dtype=arr.dtype)]
+    n_inds = arr.shape[0]
+
+    # Loop over elements in n-tuple and recursively build union of all subsets
+    # in current power set, while accumulating more unique elements in power
+    # set
+    for element in arr:
+        one_element_arr = np.array([element], dtype=arr.dtype)
+        union = [concatenate(subarr, one_element_arr) for subarr in power_set]
+        power_set += union
+
+    # Depending on outputting final element of power set or not - always
+    # excluding the empty set.
+    final_elem = [-1, len(power_set)][int(full)]
+    power_set = power_set[1:final_elem]
+
+    # If removing single-elements
+    single_idx_size = [0, n_inds][int(rem_single)]
+    single_idx = np.array([2**i - 1 for i in range(n_inds)])[::-1]
+    for i in range(single_idx_size):
+        del power_set[single_idx[i]]
+
+    # return power set, excluding empty set and full tuple as not needed
+    return power_set
+
+
+###############################################################################
+# 4. BUILD WORKLISTS
+###############################################################################
+
+
+def reduced_powerset(iterable, min_set=0, max_set=None):
+    """
+    This function computes the (potentially) reduced powerset
+    of an iterable container of objects.
+
+    By default, the function returns the full powerset of the
+    iterable, including the empty set and the full container itself.
+    The size of returned sets can be limited using the min_set and
+    max_set optional arguments.
+
+    INPUTS:
+    ----------
+        iterable  (iterable) : A container of objects for which to construct
+        the (reduced) powerset.
+
+        min_set (int) : The smallest size of set to include in the reduced
+        powerset. Default 0.
+
+        max_set (int) : The largest size of set to include in the reduced
+        powerset. By default, sets up to len(iterable) areincluded.
+    """
+    # Default setting for max set to generate combinations from
+    if max_set is None:
+        max_set = len(iterable) + 1
+
+    # Generate combinations
+    return itertools.chain.from_iterable(
+        itertools.combinations(iterable, r) for r in range(min_set, max_set)
+    )
+
+
+def compute_worklist(edge_list, n_diseases, shuffle=False):
+    """
+    Using a list of tuples where each tuple represents a hyperedges whose
+    entries are nodes, compute the work list used to compute the edge weights.
+
+    INPUTS:
+    ---------------
+        edges (list) : List of tuples, each list element representing a unique
+        hyperedge.
+
+        n_diseases (int) : Number of diseases in dataset.
+
+        shuffle (bool): Flag to shuffle worklist.
+    """
+    # Initialise dummy -1 vector, work list and number of hyperedges
+    n_edges = len(edge_list)
+    work_list = np.zeros((n_edges, n_diseases), dtype=np.int8)
+    dummy_var = list(-1 * np.ones(n_diseases))
+
+    # Loop over tuple of edges and fill work list
+    for i, e in enumerate(edge_list):
+        n_nodes = len(e)
+        work_list[i] = list(e) + dummy_var[n_nodes:]
+
+    # shuffle the work list
+    if shuffle:
+        reindex = np.arange(work_list.shape[0])
+        np.random.shuffle(reindex)
+        work_list = work_list[reindex]
+        edge_list = np.array(edge_list, dtype="object")[reindex].tolist()
+
+    return work_list
+
+
+def comp_edge_worklists(hyperedge_arr, contribution_type="power", shuffle=False):
+    """
+    Given an array of hyperedges from some dataset and a weighting system
+    ("power", "exclusive" or "progression", construct work and edge lists for
+    compatability with numba. This function uses compute_worklist() above to
+    allow compatability with Numba.
+
+    INPUTS:
+    ---------------
+        hyperedge_arr (np.array, dtype=np.uint8) : Array of hyperedges. Number
+        of rows represents the number of hyperedges and the number of columns
+        represents the number of diseases.
+
+        contribution_type (str) : Type of weighting system, can either be
+        "power", "exclusive" or "progression".
+
+        shuffle (bool): Flag to shuffle worklist.
+    """
+    # Extract number of hyperedges and number of diseases
+    n_hyperedges, n_diseases = hyperedge_arr.shape
+
+    # Depending on if weight system is power set or exclusive
+    if contribution_type == "power":
+        # Compute list of all potential hyperedges including the power set of
+        # all unique hyperedges observed above
+        edges = list(
+            set().union(
+                *[
+                    list(
+                        reduced_powerset(
+                            np.where(i)[0],
+                            min_set=1,
+                            max_set=np.array([i.sum() + 1, n_diseases + 1])
+                            .min()
+                            .astype(np.int64),
+                        )
+                    )
+                    for i in hyperedge_arr
+                ]
+            )
+        )
+
+    elif (contribution_type == "exclusive") or (contribution_type == "progression"):
+        # Compute list of only observed hyperedges (this excludes all power
+        # set edges)
+        edges = [tuple(np.where(row)[0]) for row in hyperedge_arr]
+
+    # determine worklist for powerset edges and exclusive edges
+    worklist = compute_worklist(edges, n_diseases, shuffle=shuffle)
+
+    return worklist

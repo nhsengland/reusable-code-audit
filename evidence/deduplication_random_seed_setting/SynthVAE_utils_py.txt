@@ -1,0 +1,4 @@
+# Source: SynthVAE/utils.py (Lines 14-16)
+def set_seed(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)

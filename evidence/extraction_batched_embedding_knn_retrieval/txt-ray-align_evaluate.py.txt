@@ -1,0 +1,136 @@
+# Source: txt-ray-align/evaluate.py (Lines 77-211)
+def load_embeddings(folder):
+    path = Path(folder)
+    files = [*path.glob("**/*.pkl")]
+    dfs = []
+    for file in files:
+        dfs.append(pd.read_pickle(file))
+    return pd.concat(dfs, axis=0, ignore_index=True)
+
+
+def add_chex(embs, chex_folder, embed_type="image", add_report=False):
+
+    # get chex frame
+    chex_folder = Path(chex_folder)
+    chex_files = [*chex_folder.glob("**/*.csv")]
+    # print(f"Found {len(chex_files)} chex csv files")
+
+    dfs = []
+    for chex_file in chex_files:
+        dfs.append(pd.read_csv(chex_file))
+    chex = pd.concat(
+        dfs, axis=0, ignore_index=True
+    )  # want to explicitly keep indices (the study_ids)
+    chex = chex.drop_duplicates().reset_index(drop=True)
+
+    # chex = chex.dropna().drop_duplicates().reset_index(drop=True)
+    # print("chex sentences:", len(chex))
+
+    # split the cat col into multiple cols and consolidate
+    dummies = pd.get_dummies(chex["cat"]).replace(0, np.nan).mul(chex["vals"], 0)
+    chex[dummies.columns] = dummies
+
+    # left merge the consolidated labels into the embs frame making sure no embs are dropped
+    if embed_type == "image":
+        # this preserves only the study level classes
+        chex_multi_label = (
+            chex.drop(columns=["vals", "index"])
+            .groupby(["mimic_id"])
+            .max(numeric_only=True)
+            .reset_index()
+        )
+        embs = pd.merge(
+            embs, chex_multi_label, left_on="study_id", right_on="mimic_id", how="left"
+        ).drop(columns="mimic_id")
+    elif embed_type == "text":
+        # this preserves sentence-level classes per study
+        chex_multi_label = (
+            chex.drop(columns=["vals", "index"])
+            .groupby(["mimic_id", "sents"])
+            .max(numeric_only=True)
+            .reset_index()
+        )
+        embs = pd.merge(
+            embs,
+            chex_multi_label,
+            left_on=["study_id", "target"],
+            right_on=["mimic_id", "sents"],
+            how="left",
+        ).drop(columns=["mimic_id", "sents"])
+    else:
+        print("Please choose embed_type = (image | text), exiting...")
+        exit(1)
+
+    if add_report:
+        embs = pd.merge(
+            embs,
+            chex[["mimic_id", "report"]].drop_duplicates(),
+            left_on="study_id",
+            right_on="mimic_id",
+            how="left",
+        ).drop(columns="mimic_id")
+
+    return embs, dummies
+
+
+def get_sims_in_batches(embs_query, bank_folder, max_k, unique_text=False):
+
+    test_instances = np.stack(embs_query["embs"].values, axis=0)
+
+    bank_folder = Path(bank_folder)
+    bank_files = [*bank_folder.glob("**/*.pkl")]
+
+    top_k_sims_per_file = []
+    top_k_rows_per_file = []
+
+    # iterate through each of the bank embedding files
+    for bank_file in bank_files:
+        embs_bank = pd.read_pickle(bank_file)
+        if unique_text:
+            embs_bank = embs_bank.drop_duplicates(subset="target").reset_index(
+                drop=True
+            )
+
+        bank_instances = np.stack(embs_bank["embs"].values, axis=0)
+        sims = cosine_similarity(test_instances, bank_instances)
+
+        top_k_sims = (
+            []
+        )  # holds the top k sims for each instance (len(instance) x max_k)
+        top_k_rows = []  # holds the top k rows (as df) for each instance
+
+        # iterate through each query instance and find top_k sims within batch
+        for i, sim in enumerate(sims):
+            top_k = (-sim).argsort()[:max_k]  # list of indices
+            top_k_sims.append(list(sim[top_k]))
+            top_k_rows.append(embs_bank.loc[top_k].reset_index(drop=True))
+
+        top_k_sims_per_file.append(top_k_sims)
+        top_k_rows_per_file.append(top_k_rows)
+
+    # merging similarities instance-wise
+    top_k_sims = []
+    for line in zip(*top_k_sims_per_file):
+        accum = []
+        for ln in line:
+            accum = accum + ln
+        top_k_sims.append(accum)
+
+    # get the actual top_k similarities across all batches
+    top_k_idxs = []
+    for i, sim in enumerate(top_k_sims):
+        sim = np.array(sim)
+        top_k = (-sim).argsort()[:max_k]  # list of indices
+        top_k_idxs.append(top_k)
+        top_k_sims[i] = sim[top_k]
+
+    # merging top rows instance_wise
+    top_k_rows = []
+    for line in zip(*top_k_rows_per_file):
+        top_k_rows.append(pd.concat(line, axis=0, ignore_index=True))
+
+    # get the actual top_k rows across all batches:
+    for i, row in enumerate(top_k_rows):
+        top_k_rows[i] = row.loc[top_k_idxs[i]].reset_index(drop=True)
+
+    return top_k_sims, top_k_rows

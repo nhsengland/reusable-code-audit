@@ -1,0 +1,25 @@
+# Source: nlp_renal_biopsy/src/preprocessing/eda.py (Lines 155-178)
+            reports: List of report dictionaries
+            section_key: Key for the section to analyse
+            highlight_words: Words to highlight in visualisation
+            n_terms: Number of top terms to display
+            
+        Returns:
+            DataFrame with word frequencies
+        """
+        texts = [report[section_key] for report in reports if report.get(section_key)]
+        
+        processed_texts = [
+            [token.text for token in self.nlp(text.lower())
+             if token.is_alpha and token.text not in self.stop_words]
+            for text in texts
+        ]
+        
+        dictionary = corpora.Dictionary(processed_texts)
+        word_freq = dictionary.doc2bow(sum(processed_texts, []))
+        
+        freq_df = pd.DataFrame(word_freq, columns=['Word ID', 'Frequency'])
+        freq_df['Word'] = freq_df['Word ID'].apply(lambda x: dictionary[x])
+        freq_df = freq_df.sort_values(by='Frequency', ascending=False)
+        freq_df['Highlight'] = freq_df['Word'].isin(highlight_words)
+        

@@ -1,0 +1,97 @@
+# Source: evalsense/evalsense/utils/text.py (Lines 30-125)
+def extract_lines(
+    text: str,
+    include_filter_fun: Callable[[str], bool] = lambda _: True,
+    trim_lines: bool = True,
+) -> list[str]:
+    """
+    Extract lines from the text based on a filter function.
+
+    Args:
+        text (str): The text to extract lines from.
+        include_filter_fun (Callable[[str], bool], optional): A function that
+            takes a line and returns True if it should be included, False
+            otherwise. Defaults to a function that includes all lines.
+        trim_lines (bool, optional): Whether to trim bullet points, list numbers
+            and whitespace from the beginning/end of each line. Defaults to True.
+
+    Returns:
+        list[str]: A list of extracted lines.
+    """
+    lines = text.splitlines()
+    if trim_lines:
+        lines = [regex.sub(r"^\s*\d+\.\s*", "", line) for line in lines]
+        lines = [line.strip().lstrip("*").lstrip("-").strip() for line in lines]
+
+    return [line for line in lines if include_filter_fun(line)]
+
+
+@overload
+def extract_ternary_answer(
+    text: str, binary_only: Literal[True], unknown_on_mismatch: Literal[False] = False
+) -> bool: ...
+@overload
+def extract_ternary_answer(
+    text: str, binary_only: Literal[False], unknown_on_mismatch: bool = True
+) -> bool | None: ...
+def extract_ternary_answer(
+    text: str, binary_only: bool, unknown_on_mismatch: bool = True
+) -> bool | None:
+    """
+    Extract a ternary answer (True/False/Unknown) from the text.
+
+    Valid answers are 'yes', 'no', 'true', 'false', 'unknown', and 'I don't know'.
+
+    Args:
+        text (str): The text to extract the answer from.
+        binary_only (bool): If True, only 'yes' or 'no' are valid answers.
+        unknown_on_mismatch (bool): If True, return None for answers not
+            matching any of the valid answers. If False, raise an error.
+            Only relevant if binary_only is False. Defaults to True.
+
+    Returns:
+        bool | None: The extracted answer - bool for True/False, None for Unknown.
+    """
+    pattern = r"\b(?:yes|no|true|false|unknown|i don't know)\b"
+    match = regex.search(pattern, text, regex.IGNORECASE)
+    if match:
+        answer = match.group(0).lower()
+        if answer in ["yes", "true"]:
+            return True
+        elif answer in ["no", "false"]:
+            return False
+        else:
+            if binary_only:
+                raise ValueError(
+                    "Binary answer expected, but 'unknown' or 'I don't know' found."
+                )
+            return None
+    if not binary_only and unknown_on_mismatch:
+        return None
+    raise ValueError(f"Unable to extract a binary answer from text: {text}.")
+
+
+def extract_score(text: str, min_score: int = 1, max_score: int = 10) -> int:
+    """
+    Extract the first numerical score from text that falls between min_score and max_score.
+
+    Args:
+        text (str): The text to extract the score from.
+        min_score (int): The minimum valid score. Defaults to 1.
+        max_score (int): The maximum valid score. Defaults to 10.
+
+    Returns:
+        float | None: The extracted score if found and valid, otherwise None.
+    """
+    pattern = r"\b\d+\b"
+    matches = regex.findall(pattern, text)
+
+    for match in matches:
+        try:
+            score = int(match)
+            if min_score <= score <= max_score:
+                return score
+        except ValueError:
+            continue
+
+    raise ValueError(f"Unable to extract a valid score from text: {text}.")

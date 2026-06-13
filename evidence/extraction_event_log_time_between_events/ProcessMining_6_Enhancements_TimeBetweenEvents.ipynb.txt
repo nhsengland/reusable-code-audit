@@ -1,0 +1,66 @@
+# Source: ProcessMining/Notebooks/6_Enhancements_TimeBetweenEvents.ipynb (Cell 22)
+def timebetweenevents(df,first_activity,second_activity):
+    activity1df=df[df['Activity']==first_activity]
+    activity2df=df[df['Activity']==second_activity]
+    mergeddf=activity1df.merge(activity2df,on=['Patient_ID'],how='right')
+    mergeddf=mergeddf[['Patient_ID','Activity_x','Timestamp_x','relativetime_s_x','Activity_y','Timestamp_y','relativetime_s_y']].copy()
+    mergeddf['diff']=mergeddf['relativetime_s_y']-mergeddf['relativetime_s_x']
+    #inds = mergeddf['diff'].index[mergeddf['diff'].apply(np.isnan)]
+    time=mergeddf['diff'][~mergeddf['diff'].isna()].values
+    timemins = [x / (60) for x in time]
+    return timemins
+
+# Source: ProcessMining/Notebooks/6_Enhancements_TimeBetweenEvents.ipynb (Cell 24)
+def timedensityandboxplot(df,first_activity,second_activity,Title,upperxlim):
+    timemins=timebetweenevents(df,first_activity,second_activity)
+    f, (ax_dens,ax_box) = plt.subplots(2, sharex=True, gridspec_kw={"height_ratios": (.85, .15)})
+    sns.kdeplot(timemins,ax=ax_dens)
+    sns.boxplot(timemins,ax=ax_box , orient="h",showmeans=True, meanprops={"marker": "+","markeredgecolor": "orange","markersize": "10"})
+    plt.xlim(0,upperxlim)
+    ax_dens.set(xlabel='')
+    ax_dens.set(title=Title)
+    ax_box.set(xlabel='Time (Minutes)')
+    plt.show()
+    return print("median time between events", np.median(timemins)),print("mean time between events", np.mean(timemins))
+
+# Source: ProcessMining/Notebooks/6_Enhancements_TimeBetweenEvents.ipynb (Cell 26)
+def boxplot_time_between_activities_per_attribute(DF,first_activity,second_activity,attribute,specify_outcome_required,Title,lowerylim,upperylim):
+    ELTT=DF[~DF[attribute].isna()]
+
+    if specify_outcome_required!='None':
+        ELTT=ELTT[ELTT['Outcome']==specify_outcome_required]
+    cats=list(sorted(set(ELTT[attribute].values)))
+    catsdict={key:None for key in cats}
+    for i in range(len(cats)):
+        cat=cats[i]
+        df=[]
+        df=ELTT[ELTT[attribute]==cat]
+        timemins=timebetweenevents(df,first_activity,second_activity)
+        catsdict[cat]=timemins
+    catsdf=pd.DataFrame(dict([(k,pd.Series(v)) for k, v in catsdict.items()]))
+    plt.figure(figsize=(30,5))
+    sns.boxplot(data=catsdf).set(title=Title,ylabel='Time (Minutes)',xlabel=attribute)
+    plt.ylim(lowerylim,upperylim)
+    
+
+# Source: ProcessMining/Notebooks/6_Enhancements_TimeBetweenEvents.ipynb (Cell 28)
+def attributes_effect_on_mean_time_between_events(df,activity1,activity2,attribute,specify_outcome_required):
+    meantimes=[]
+    attributevals=[]
+    DF=df[~df[attribute].isna()]
+    if specify_outcome_required!='None':
+        DF=DF[DF['Outcome']==specify_outcome_required]
+    time=timebetweenevents(DF,activity1,activity2)
+    print('Mean Time between'+activity1+' and '+ activity2 + ' was ' + str(np.mean(time))+' minutes')
+    for  i in set(DF[attribute].values):
+        df=[]
+        df=DF[DF[attribute]==i]
+        meantimes.append(np.mean(timebetweenevents(df,activity1,activity2)))
+        attributevals.append(i)
+    columnname=('Mean effect on mean time between '+activity1+' and '+activity2+ ' (minutes)')
+    attefffect={attribute:attributevals, columnname:[-1*(np.mean(time)-i) for i in meantimes]}
+    attefffect_df = pd.DataFrame(attefffect)
+    attefffect_df=attefffect_df.sort_values( columnname,axis=0, ascending=False)
+    return(attefffect_df)
+
+

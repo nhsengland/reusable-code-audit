@@ -1,0 +1,34 @@
+# Source: nlp_renal_biopsy/src/utils/json.py (Lines 14-46)
+def load_json(file_path: Union[str, Path]) -> Any:
+    """
+    Load and parse a JSON file.
+
+    Args:
+        file_path: Path to the JSON file
+
+    Returns:
+        Parsed JSON content
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist
+        json.JSONDecodeError: If the file contains invalid JSON
+    """
+    with open(file_path, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+def save_json(data: Any, path: Union[str, Path], indent: int = 4) -> None:
+    """
+    Save data to a JSON file.
+
+    Args:
+        data: Data to save (must be JSON-serializable)
+        path: Output file path
+        indent: Number of spaces for indentation
+
+    Raises:
+        OSError: If there's an error writing the file
+        TypeError: If the data is not JSON-serializable
+    """
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=indent)

@@ -1,0 +1,61 @@
+# Source: ESNEFT_diabetes_StephenRicher/scripts/deprivation-analysis.md (Lines 16-75)
+```python
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+from scipy.stats import spearmanr
+from pingouin import partial_corr
+```
+Here make sure have ESNEFT_TOOLS installed. 
+It is located here https://github.com/nhsx/p24-diabetes-inequal
+and can be installed by running the following 
+```
+python3 -m pip install esneft_tools
+```
+```
+from esneft_tools.utils import formatP
+from esneft_tools import download, process, visualise
+import utils
+from utils import (
+    plot_deprivation_heatmap, load_adult_skills, 
+    load_english_language)
+```
+
+### Load ESNEFT tools data
+
+#### Summary of Deprivation, Demographics and Disease Prevalance
+* LSOA level
+* GP level
+
+```python
+# Instantiate data download class.
+getData = download.getData(cache='../data/.data-cache')
+# Retrieve all data as dictionary
+publicData = getData.fromHost('all')
+# Get nation-wide summary by LSOA
+LSOAsummary = process.getLSOAsummary(**publicData)
+# Get nation-wide summary by GP
+GPsummary = process.getGPsummary(**publicData)
+```
+
+### Load additional public (not part of ESNEFT tools)
+
+#### Underlying indicators of Adult Skills Deprivation sub-domain
+* English Language Proficiency
+* Higher Education
+
+```python
+rename = ({
+    'EthnicMinority': 'Non-white',
+    'Income': 'Income',
+    'Employment': 'Employment',
+    'Education': 'Education',
+    'Health': 'Health',
+    'Crime': 'Crime',
+    'Barriers (H&S)': 'Barriers (H&S)',
+    'Environment': 'Environment'
+})
+LSOAsummary['Adult Education'] = load_adult_skills('../data/HigherEducation-LSOA11.csv')
+LSOAsummary['English Proficiency'] = load_english_language('../data/EnglishLanguage-LSOA11.csv')
+LSOAsummary = LSOAsummary.dropna().rename(rename, axis=1).copy()
+```

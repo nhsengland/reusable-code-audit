@@ -1,0 +1,32 @@
+# Source: txt-ray-align/embeddings.py (Lines 275-305)
+    def __call__(self, item, embed_type="image"):
+        self.model.eval()
+        with torch.no_grad():
+            study_id = item["study_id"]
+            if embed_type == "image":
+                target = item["image_filename"]
+                image_features = self.model.model.encode_image(
+                    item["image_tensor"].to(self.device)
+                )
+                image_features /= image_features.norm(dim=-1, keepdim=True)
+                embs = image_features.cpu().numpy()
+            elif embed_type == "text":
+                target = item["text"]
+                if self.model.using_clip:
+                    text_tokens = item["tokens"].to(self.device)
+                else:
+                    text_tokens = self.tokenizer(
+                        target,
+                        padding=True,
+                        truncation=True,
+                        max_length=128,
+                        return_tensors="pt",
+                    ).to(self.device)
+                text_features = self.model.encode_text(text_tokens)
+                text_features /= text_features.norm(dim=-1, keepdim=True)
+                embs = text_features.cpu().numpy()
+            else:
+                print("invalid embed_type -- choose image or text, exiting...")
+                exit(1)
+
+            return {"study_id": study_id, "target": target, "embs": embs}

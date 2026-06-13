@@ -1,0 +1,40 @@
+# Source: txt-ray-align/data/text_image_dm.py (Lines 71-85)
+        self.resize_ratio = resize_ratio
+        self.image_transform = T.Compose(
+            [
+                T.Lambda(self.fix_img),
+                T.RandomResizedCrop(
+                    image_size, scale=(self.resize_ratio, 1.0), ratio=(1.0, 1.0)
+                ),
+                T.ToTensor(),
+                T.Normalize(
+                    (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+                )  # ResNet50 values
+                # T.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+            ]
+        )
+        self.custom_tokenizer = custom_tokenizer
+
+# Source: txt-ray-align/data/resize.py (Lines 28-49)
+class ImageDataset(Dataset):
+    def __init__(self, image_folder, resize_to=256):
+        super().__init__()
+
+        print("Finding images...")
+        self.image_files = [*Path(image_folder).glob("**/*.jpg")]
+
+        print("Found:", len(self.image_files))
+        self.image_transform = T.Compose(
+            [
+                T.Resize(size=resize_to),
+                # T.ToTensor()
+            ]
+        )
+
+    def __len__(self):
+        return len(self.image_files)
+
+    def __getitem__(self, index):
+        image_file = str(self.image_files[index])
+        resized_image = self.image_transform(PIL.Image.open(image_file))
+        return image_file, resized_image

@@ -1,0 +1,185 @@
+# Source: hypergraph-mm/hypmm/build_model.py (Lines 21-204)
+def filter_data(
+    data,
+    columns,
+    all_columns,
+    rem_healthy=False,
+    exclusive=False,
+    rem_resbreaks=False,
+    date_index=None,
+    verbose=True,
+):
+    """
+    Using user-specified flags, filter individuals according to condition
+    dates, residential breaks and disease exclusivity.
+
+    INPUTS:
+    -----------------------
+        data (pd.DataFrame) : Dataframe of individuals as rows and demographic,
+        death and disease columns. All disease entries must be datetime
+        instances.
+
+        columns (list) : List of disease strings used to subset particular
+        diseases in data.
+
+        all_columns (list) : List of all diseases.
+
+        rem_healthy (bool) : Flag to remove individuals with none of the
+        diseases specified in columns.
+
+        exclusive (bool) : Flag to only include individuals that only ever had
+        a distinct subset of the diseases in columns, i.e. anyone who ever had
+        other diseases not mentioned in columns are excluded.
+
+        rem_resbreaks (bool) : Flag to remove individuals who moved from Wales,
+        i.e. those tagged with "Residency Break".
+
+        date_index (3-tuple) : 3-tuple of integers to represent year, month
+        and day for cut-off when filtering individuals. This will remove
+        individuals who have any condition dates prior to the date specified.
+
+        verbose (bool) : Flag to print out progress information during and
+        summary statistics after creating the dataset.
+
+    RETURNS:
+    ----------------------
+        data_df (pd.DataFrame) : Filtered disease date-time DataFrame of
+        individuals.
+
+        demo_df (pd.DataFrame) : Filtered demographic DataFrame of individuals.
+    """
+    # Slice disease dataframe to only include FIRST observational dates and
+    # create demographic dataframe allowing option to remove individuals who
+    # moved during cohort coverage. Rename columns accordingly
+    # Difference between all charlson diseases and diseases specified
+    diff_diseases = list(set(all_columns) - set(columns))
+    data_df = data[[f"FIRST_{col}" for col in columns]]
+    N_obs = data_df.shape[0]
+    data_df.columns = columns
+
+    # Extract demographic data
+    death_cols = ["DOD", "ADDE_DOD", "ADDE_DOD_REG_DT", "COHORT_END_DATE"]
+    demo_cols = [
+        "GNDR_CD",
+        "AGE_AT_INCEPTION",
+        "WIMD2011_QUINTILE_INCEPTION",
+        "COHORT_END_DESC",
+        "COHORT_END_DATE",
+    ]
+    demo_df = data[demo_cols + death_cols[:-1]]
+    demo_names = ["SEX", "AGE", "DEPR", "COHORT_END_DESC", "COHORT_END_DATE"]
+
+    # Remove those who left cohort due to residential break
+    if rem_resbreaks:
+        if verbose:
+            print(
+                (
+                    "Removing individuals who left cohort intermittently "
+                    "for a residency break..."
+                )
+            )
+        demo_df = demo_df.loc[data["COHORT_END_DESC"] != "Residency break"].reset_index(
+            drop=True
+        )
+        data_df = data_df.loc[data["COHORT_END_DESC"] != "Residency break"].reset_index(
+            drop=True
+        )
+        if verbose:
+            N_removed = N_obs - demo_df.shape[0]
+            print(
+                (
+                    f"Removed {N_removed} ({round(100*N_removed/N_obs,1)}%) "
+                    "individuals."
+                )
+            )
+
+    # If date string specified, filter data by removing individuals who have
+    # any observed condition date earlier than date specified
+    N_obs = demo_df.shape[0]
+    if date_index is not None:
+        y, m, d = date_index
+        time_threshold = dt.date(y, m, d)
+        if verbose:
+            date_string = str(d) + "/" + str(m) + "/" + str(y)
+            print(
+                ("\nRemoving individuals whose condition dates < " f"{date_string}...")
+            )
+        date_bool = np.all((data_df > time_threshold) | (pd.isnull(data_df)), axis=1)
+        data_df = data_df.loc[date_bool].reset_index(drop=True)
+        demo_df = demo_df.loc[date_bool].reset_index(drop=True)
+        if verbose:
+            N_removed = N_obs - demo_df.shape[0]
+            print(
+                (
+                    f"Removed {N_removed} ({round(100*N_removed/N_obs,1)}%) "
+                    "individuals."
+                )
+            )
+
+    # Convert to binary numpy array and remove those without any conditions
+    # specified in columns
+    # This is only flagged if specifically rem_healthy = True or if diseases
+    # specified is a subset of all disease nodes
+    N_obs = demo_df.shape[0]
+    data_binmat = np.array(data_df.astype(bool).astype(int))
+    if rem_healthy or diff_diseases != []:
+        if verbose:
+            print(
+                (
+                    "\nRemoving individuals without any condition in disease "
+                    "nodes specified..."
+                )
+            )
+        dir_ind = np.where(data_binmat.sum(axis=1) > 0)[0]
+        data_df = data_df.loc[dir_ind].reset_index(drop=True)
+        demo_df = demo_df.loc[dir_ind].reset_index(drop=True)
+        data_binmat = data_binmat[dir_ind]
+        if verbose:
+            N_removed = N_obs - demo_df.shape[0]
+            print(
+                (
+                    f"Removed {N_removed} ({round(100*N_removed/N_obs,1)}%) "
+                    "individuals."
+                )
+            )
+
+    # If only including individuals that only ever had some subset of those
+    # diseases in columns
+    N_obs = data_binmat.shape[0]
+    if exclusive:
+        if verbose:
+            print(
+                (
+                    "\nRemoving individuals whose final multimorbidity set "
+                    "are a subset of those diseases provided..."
+                )
+            )
+
+        # If not all diseases specified then nobody is excluded, otherwise
+        # look at binary flag data for all non-specified diseases and remove
+        # anyone who has been observed to have any of these non-specified
+        # diseases.
+        if diff_diseases != []:
+            diff_columns = [f"FIRST_{col}" for col in diff_diseases]
+            all_data_binmat = np.array(data[diff_columns].astype(bool).astype(int))[
+                dir_ind
+            ]
+            exc_ind = np.where(all_data_binmat.sum(axis=1) == 0)[0]
+            data_df = data_df.loc[exc_ind].reset_index(drop=True)
+            demo_df = demo_df.loc[exc_ind].reset_index(drop=True)
+            data_binmat = data_binmat[exc_ind]
+
+        if verbose:
+            N_removed = N_obs - demo_df.shape[0]
+            print(
+                (
+                    f"Removed {N_removed} ({round(100*N_removed/N_obs,1)}%) "
+                    "individuals."
+                )
+            )
+
+    # Remove unnecessary columns from demographic DataFrame and rename columns
+    demo_df = demo_df[demo_cols]
+    demo_df.columns = demo_names
+
+    return data_df, demo_df, data_binmat
