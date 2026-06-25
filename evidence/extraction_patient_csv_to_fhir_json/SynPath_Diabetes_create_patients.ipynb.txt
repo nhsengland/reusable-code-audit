@@ -1,0 +1,95 @@
+# Source: SynPath_Diabetes/t2dm/create_patients.ipynb (Cell 1)
+import pandas as pd
+import numpy as np
+import csv
+import itertools
+import json
+import pprint
+import names
+
+def nameGen(gender):
+    return names.get_full_name(gender=gender)
+idVars = [
+    'patient_id',
+    'age',
+    'ethnicity',
+    'gender',
+    'birth_date',
+    'name',
+]
+observationsVars = [
+    'durationOfT2DM',
+    'egfr',
+    'haemoglobin',
+    'hba1c',
+    'hdlCholesterol',
+    'heartRate',
+    'height',
+    'ldlCholesterol',
+    'systolicBloodPressure',
+    'wbc',
+    'weight',
+]
+conditionsVars = [
+    'af',
+    'albuminuria',
+    'currentSmoker',
+    'history_Amputation',
+    'history_BlindnessOneEye',
+    'history_CHF',
+    'history_IHD',
+    'history_MI',
+    'history_Stroke',
+    'pvd',
+]
+file = pd.read_csv('./patients.csv') #, parse_dates=conditionsVars)
+file['name'] = file.apply(lambda x: nameGen(x['gender']),axis=1)
+core = file[idVars]
+cond = pd.melt(
+    file, 
+    id_vars='patient_id', 
+    value_vars=conditionsVars, 
+    var_name='name', 
+    value_name='start'
+).dropna().groupby('patient_id').apply(
+    lambda x: x[['name', 'start']].to_dict('records')
+).reset_index().rename(
+    columns={0: 'conditions'}
+)
+obs = pd.melt(
+    file, 
+    id_vars='patient_id', 
+    value_vars=observationsVars, 
+    var_name='name', 
+    value_name='value'
+).dropna().groupby('patient_id').apply(
+    lambda x: x[['name', 'value']].to_dict('records')
+).reset_index().rename(
+    columns={0: 'observations'}
+)
+output = core.merge(cond, how='left').merge(obs, how='left').to_json(orient='records')
+pprint.pprint(json.loads(output)[0: 2])
+
+# Source: SynPath_Diabetes/t2dm/create_patients.ipynb (Cell 4)
+for ii in range(0, 10000):
+    if json_output[ii]['conditions'] != None: 
+        for jj in range(0, len(json_output[ii]['conditions'])):
+            json_output[ii]['conditions'][jj-1]['real_start_time'] = json_output[ii]['conditions'][jj-1]['start']
+            json_output[ii]['conditions'][jj-1]['end'] = False
+            json_output[ii]['conditions'][jj-1]['real_end_time'] = False
+            json_output[ii]['conditions'][jj-1]['active'] = None
+            json_output[ii]['conditions'][jj-1]['count'] = 1
+            json_output[ii]['conditions'][jj-1]['record_index'] = 0
+            json_output[ii]['conditions'][jj-1]['code'] = '99999999'
+            
+for ii in range(0, 10000):
+    if json_output[ii]['observations'] != None: 
+        for jj in range(0, len(json_output[ii]['observations'])):
+            json_output[ii]['observations'][jj-1]['start'] = '01/04/2021'
+            json_output[ii]['observations'][jj-1]['end'] = False
+            json_output[ii]['observations'][jj-1]['code'] = '19191919'
+
+# Source: SynPath_Diabetes/t2dm/create_patients.ipynb (Cell 5)
+with open('./patient_infos.json', 'w') as jsonFile:
+    # make it more readable
+    jsonFile.write(json.dumps(json_output, indent=4))

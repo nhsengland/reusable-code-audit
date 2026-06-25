@@ -1,0 +1,69 @@
+# Source: ProcessMining/Notebooks/2_CADData_to_EVlog.ipynb (Cell 20)
+name1 = 'PCD_OA_LSOA_MSOA_LAD_FEB20_UK_LU.csv'
+url1 = 'https://www.arcgis.com/sharing/rest/content/items/9a8866dd822c4f3d944b9497203ee5e5/data'
+if not os.path.exists(f'{name1}.zip'):
+    urllib.request.urlretrieve(url1, f'{name1}.zip')
+    with zipfile.ZipFile(f'{name1}.zip', 'r') as zipRef:
+        zipRef.extractall('')
+
+# Source: ProcessMining/Notebooks/2_CADData_to_EVlog.ipynb (Cell 21)
+# Set column names and datatype
+dtype = ({
+    'PCDS'    : str, # PCDS - one space between the district and sector-unit part of the postcode.
+    'OA11CD'  : str, # Output Area (Census 2011)
+    'LSOA11CD': str, # Lower Layer Super Output Areas Code (Census 2011)
+    'MSOA11CD': str, # Middle Layer Super Output Areas Code (Census 2011)
+    'MSOA11NM': str, # Middle Layer Super Output Areas (Census 2011))
+})
+
+# Define columns to read
+cols = [2, 6, 7, 8, 11]
+
+# Read data
+postcode_LSOA_df = pd.read_csv('Postcode_to_Output_Area_to_Lower_Layer_Super_Output_Area_to_Middle_Layer_Super_Output_Area_to_Local_Authority_District_November_2018_Lookup_in_the_UK.csv', usecols=cols, names=dtype.keys(), dtype=dtype,
+    skiprows=1, sep=',', encoding='latin-1')#.set_index('LSOA11CD')
+
+# Source: ProcessMining/Notebooks/2_CADData_to_EVlog.ipynb (Cell 23)
+postcode_LSOA_df['PCDS']=postcode_LSOA_df['PCDS'].map(lambda x: x.split(' ')[0])
+postcode_LSOA_df.head()
+
+# Source: ProcessMining/Notebooks/2_CADData_to_EVlog.ipynb (Cell 25)
+# Global variables - downloading function for use with large downloading datasets
+cache_path = os.path.join(os.getcwd(), "cache") # path for downloading data to
+
+def fetch(url, relative_path):
+    """If a file has already been downloaded, fetch it from the cache, otherwise download it. Returns a path to
+       the downloaded data"""
+    if not os.path.exists(cache_path):
+        os.makedirs(cache_path)
+    file_path = os.path.join(cache_path, relative_path)
+    if not os.path.exists(file_path):
+        urllib.request.urlretrieve(url, file_path)
+    return file_path
+
+# Source: ProcessMining/Notebooks/2_CADData_to_EVlog.ipynb (Cell 26)
+imd_data_path = fetch('https://assets.publishing.service.gov.uk/government/uploads/system/uploads/attachment_data/file/845345/File_7_-_All_IoD2019_Scores__Ranks__Deciles_and_Population_Denominators_3.csv', 'imd.csv')
+imd_data_df = pd.read_csv(imd_data_path)
+
+# Source: ProcessMining/Notebooks/2_CADData_to_EVlog.ipynb (Cell 36)
+def produce_LSOA_IMD(df):
+
+    # make sure formatting of postcode column matches the LSOA data
+    df['Incident_Postcode'] = df['Incident_Postcode'].str.upper()
+
+    # fetch the IMD data
+    imd_data_path = fetch('https://assets.publishing.service.gov.uk/government/uploads/system/uploads/attachment_data/file/845345/File_7_-_All_IoD2019_Scores__Ranks__Deciles_and_Population_Denominators_3.csv', 'imd.csv')
+    imd_data_df = pd.read_csv(imd_data_path)
+
+    # merge df with postcode_LSOA
+    result_df = pd.merge(df, postcode_LSOA_df[['PCDS','LSOA11CD']], left_on='Incident_Postcode',right_on='PCDS', how='left')
+
+    # merge df with the above merged df
+    #new_df = pd.merge(df2, result_df, left_on='Incident Postcode',right_on='PCDS', how='left').drop(columns='PCDS')
+
+    # final merge to produce the final_df
+    #final_df = pd.merge(new_df, imd_data_df, left_index=True,right_on='LSOA code (2011)', how='left')#.drop(columns='LSOA11CD')
+    final_df = pd.merge(result_df , imd_data_df[['LSOA code (2011)','Index of Multiple Deprivation (IMD) Decile (where 1 is most deprived 10% of LSOAs)','Health Deprivation and Disability Decile (where 1 is most deprived 10% of LSOAs)','Geographical Barriers Sub-domain Decile (where 1 is most deprived 10% of LSOAs)','Crime Decile (where 1 is most deprived 10% of LSOAs)','Income Decile (where 1 is most deprived 10% of LSOAs)','Education, Skills and Training Decile (where 1 is most deprived 10% of LSOAs)','Barriers to Housing and Services Decile (where 1 is most deprived 10% of LSOAs)']], left_on='LSOA11CD',right_on='LSOA code (2011)', how='left')#.drop(columns='LSOA11CD')
+    #final_df=final_df.drop_duplicates(subset=final_df.patientID, keep='Last')
+    return final_df.drop_duplicates(subset=['patientID'], keep='first')
+

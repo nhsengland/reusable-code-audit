@@ -1,0 +1,102 @@
+# Source: SynPath_Diabetes/t2dm/manager/intelligence/interactions/gp0.py (Lines 18-55)
+# This is gp 0 (the first gp clinic, where patients are referred to community and hospital 1)
+
+# Diabetes interaction 1: blood test, measure hba1c
+# Blood test at the GP to measure hba1c level (glucose level in diabetes)
+
+def measure_hba1c(patient, environment, patient_time):
+    encounter = {
+        "resource_type": "Encounter",
+        "name" : "measure_hba1c",
+        "start": patient_time,
+    }
+
+    entry = {
+        "resource_type" : "Observation",
+        "name": "measure hba1c", 
+        "start": encounter["start"] + datetime.timedelta(minutes=15),
+        "cost": 4,      # to be updated for an accurate figure
+        "glucose": 0,   # dummy glucose impact, to be updated
+        "carbon": 6,    # update for more accurate figure
+    }
+
+    new_patient_record_entries = [encounter, entry]
+
+    next_environment_id_to_prob = {0: 0.9, 29: 0.1}  # gp, outpatient diabetes
+
+    next_environment_id_to_time = {
+        0: datetime.timedelta(days=10),  # TODO: from initial patient_time (not last)
+        29: datetime.timedelta(days=20)
+    }
+
+    update_data = {"new_patient_record_entries": new_patient_record_entries}
+    return (
+        patient,
+        environment,
+        update_data,
+        next_environment_id_to_prob,
+        next_environment_id_to_time,
+    )
+
+# Source: SynPath_Diabetes/t2dm/manager/intelligence/intelligence.py (Lines 1-62)
+import datetime
+import numpy as np
+
+def get_next_environment_id(next_environment_id_to_prob):
+    probs = list(next_environment_id_to_prob.values())
+    environments = list(next_environment_id_to_prob)
+    return np.random.choice(environments, p=probs)
+
+
+def select_interaction(patient, environment, patient_time, interaction_mapper):
+    for i in range(15):
+        interaction_name = np.random.choice(environment.interactions)
+        if interaction_name == "death":
+            continue
+    return interaction_name, interaction_mapper[interaction_name]
+
+
+def intelligence(patient, environment, patient_time, interaction_mapper):
+
+    interaction_name, interaction = select_interaction(
+        patient, environment, patient_time, interaction_mapper
+    )
+    print(
+        f"{datetime.datetime.now()} - Inside intelligence layer:\n"
+        f"patient_name: {patient.name}\n"
+        f"patient_time: {patient_time}\n"
+        f"environment_name: {environment.name}\n"
+        f"interaction_name: {interaction_name}\n"
+    )
+
+    (
+        patient,
+        environment,
+        update_data,
+        next_environment_id_to_prob,
+        next_environment_id_to_time,
+    ) = interaction(patient, environment, patient_time)
+
+    if len(next_environment_id_to_prob) > 0:
+        next_environment_id = get_next_environment_id(
+            next_environment_id_to_prob
+        )
+    else:
+        next_environment_id = None
+
+    if len(next_environment_id_to_prob) > 0:
+        patient_time = (
+            patient_time + next_environment_id_to_time[next_environment_id]
+        )
+
+    interaction_names = [interaction_name]
+    return (
+        patient,
+        environment,
+        patient_time,
+        update_data,
+        next_environment_id,
+        interaction_names,
+        next_environment_id_to_prob,
+        next_environment_id_to_time,
+    )

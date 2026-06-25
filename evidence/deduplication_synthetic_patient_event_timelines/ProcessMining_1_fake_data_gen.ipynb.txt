@@ -1,0 +1,103 @@
+# Source: ProcessMining/Notebooks/1_fake_data_gen.ipynb (Cell 7)
+# random date function
+def _randomDate(base_date, delta):
+    """
+    Helper function to generate a random datetime
+    base_date: The date from which the offset will be applied
+    delta: A tuple with minimum and maximum offsets in minutes
+    """
+    min_offset, max_offset = delta
+    random_offset = random.randint(min_offset, max_offset)
+    return base_date + timedelta(minutes=random_offset)
+
+# Source: ProcessMining/Notebooks/1_fake_data_gen.ipynb (Cell 11)
+# function to create fake ambulance dataset
+
+def fake_data_generator(size: int = jcycles, seed: int = 42):
+    np.random.seed(seed)
+    random.seed(seed)
+    #path to east mids postcode csv below - change for yourself
+    postcodes = pd.read_csv('postcodes_east_mids.csv')
+    postcodes_east_mids = postcodes.postcode
+    nPatients = jcycles
+    inc1 = datetime.strptime('1/8/2032', '%d/%m/%Y')
+    inc2 = datetime.strptime('1/8/2033', '%d/%m/%Y')
+
+    sexes = np.random.choice(['Female', 'Male'],p=[0.51, 0.49], size=size)
+
+
+    clinical_categories = []
+
+    for sex in sexes:
+        if sex == 'Female':
+            clinical_categories.append(np.random.choice(
+            ['Cardiovascular','Obs/Gynae','Respiratory','Neurological','Trauma','Mental Health'],
+            p=[0.2,0.02,0.28,0.15,0.21,0.14])) # the probabilities of selection here reflect the proportion of each category found in the real data
+        else:
+            clinical_categories.append(np.random.choice(
+            ['Cardiovascular','Respiratory','Neurological','Trauma','Mental Health'],
+            p=[0.2/(1-0.02),0.28/(1-0.02),0.15/(1-0.02),0.21/(1-0.02),0.14/(1-0.02)]))# the probabilities of selection here reflect the proportion of each category found in the real data
+    
+    data = pd.DataFrame({
+        'patientID': np.random.choice(range(nPatients), size=size),
+        'Age': np.random.randint(0, 100, size=size),
+        'Sex': sexes,
+        'Ethnicity': np.random.choice(
+            ['White', 'Unknown', 'Other', 'Mixed', 'Asian', 'Black'],
+            p=[0.79, 0.15, 0.02, 0.02, 0.01, 0.01], size=size),# the probabilities of selection here reflect the proportion of each category found in the real data
+        'Incident_Postcode': np.random.choice(postcodes_east_mids, size=size),
+        'Clinical Category': clinical_categories,
+        'Highest Technician on Scene': np.random.choice(
+            ['Paramedic','Technician','Specialist Practicioner','ECP','Doctor','ECA','UCA','Nurse'],
+            p=[0.66,0.29,0.03,0.01,0.0042,0.0036,0.0012,0.001], size=size),
+        'First NEWS': np.random.randint(0,20, size=size),
+        'Last_NEWS': np.random.randint(0,20, size=size),
+        'Event Location': np.random.choice(['Home', 'Not Home'],p=[0.95, 0.05], size=size),
+
+        'Outcome': np.random.choice(
+            ['Treated & Transported', 'Deceased and Transported', 'Deceased Not Transported', 'Alt Transport','Referred to Other Medical'],
+            p=[0.7, 0.05, 0.05, 0.1,0.1], size=size),
+    })
+    data['patientID']=list(np.arange(1,jcycles+1,1))
+    data['Incident_Time'] = [inc1  + random.random() * (inc2 - inc1 ) for _ in range(size)]
+#     [inc1 + timedelta(days=random.randint(0, 3), 
+#                                           hours=random.randint(0, 23), 
+#                                           minutes=random.randint(0, 59), 
+#                                           seconds=random.randint(0, 59)) for _ in range(size)]
+
+    data['Originated'] = data['Incident_Time'].apply(_randomDate, delta=(0, 4*60))
+    data['Mobile'] = data['Originated'].apply(_randomDate, delta=(0, 200))
+    data['Arrive_scene'] = data['Mobile'].apply(_randomDate, delta=(0, 2*60))
+    data['First_NEWS_Time'] = data['Arrive_scene'].apply(_randomDate, delta=(0, 3*60))
+    data['LAST_NEWS_Time'] = data['First_NEWS_Time'].apply(_randomDate, delta=(0, 1*60))
+    data['Depart_scene'] = data['Arrive_scene'].apply(_randomDate, delta=(-5, 2*60))
+    data['Arrive_dest'] = data['Depart_scene'].apply(_randomDate, delta=(0, 90))
+    data['Care_transfer'] = data['Arrive_dest'].apply(_randomDate, delta=(-5, 20))
+
+    data = data.drop_duplicates(subset=data.columns, keep='first')
+    
+    return data
+
+# Source: ProcessMining/Notebooks/2_CADData_to_EVlog.ipynb (Cell 11)
+npc2=len(df.patientID.unique())
+EL_df=pd.DataFrame(columns=['Patient_ID','Activity','Timestamp'])
+n=0
+for a in df.patientID.unique():
+    df1=[]
+    df1=df[df.patientID==a]
+    
+    pi=[df1.patientID.values[0]]*18
+    act=[ 'Incident_Time','Originated', 'Mobile', 'Arrive_scene', 'First_NEWS_Time','LAST_NEWS_Time', 'Depart_scene', 'Arrive_dest', 'Care_transfer']
+    tmstp=[df1['Incident_Time'].values[0],df1['Originated'].values[0],df1['Mobile'].values[0],df1['Arrive_scene'].values[0],df1['First_NEWS_Time'].values[0],df1['LAST_NEWS_Time'].values[0],df1['Depart_scene'].values[0],df1['Arrive_dest'].values[0],df1['Care_transfer'].values[0]]
+    #drgatt=['nan']*18
+    #pi,act,tmstp,drgatt=split_drug_activity(pi,act,tmstp,drgatt,df1)
+    
+    
+    df2=[]
+    df2=pd.DataFrame(list(zip(pi,act,tmstp)),columns=['Patient_ID','Activity','Timestamp'])
+    df2=df2[df2['Timestamp'].notna()]
+    EL_df=pd.concat([EL_df,df2],ignore_index=True,axis=0)
+    n+=1
+    if n%100==0:
+        print(f"{n} patients out of {npc2}: ",n/npc2*100,"%")
+    

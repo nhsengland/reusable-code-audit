@@ -1,0 +1,45 @@
+# Source: nlp_renal_biopsy/src/ner/src/utils.py (Lines 24-67)
+def save_json(
+    data: Union[List[str], Dict[str, int], List[Dict[str, int]]], path: str
+) -> None:
+    """Saves a json serialiable object to a given path.
+
+    Args:
+        data (Union[List[str], Dict[str, int], List[Dict[str, int]]]): Either a list or dictionary to save to path.
+        path (str): String to define the path location.
+
+    Raises:
+        ValueError: If path is undefined.
+        ValueError: If no output is availible to save.
+    """
+    if path is None:
+        raise ValueError("The path variable has not been set")
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if data is not None:
+        with open(path, "w") as f:
+            json.dump(data, f)
+    else:
+        raise ValueError("No output available to save.")
+
+
+def load_json(
+    path: str,
+) -> Union[List[str], Dict[str, int], List[Dict[str, int]]]:
+    """Load a JSON seriliable Object that is a list or dictionary.
+
+    Args:
+        path (str): String to define the path location.
+
+    Raises:
+        ValueError: If path is undefined.
+
+    Returns:
+        (Union[List[str], Dict[str, int], List[Dict[str, int]]]): The loaded JSON serilisable object.
+    """
+    if path is not None:
+        with open(path) as file:
+            output = json.load(file)
+    else:
+        raise ValueError("The path variable has not been set")
+    return output

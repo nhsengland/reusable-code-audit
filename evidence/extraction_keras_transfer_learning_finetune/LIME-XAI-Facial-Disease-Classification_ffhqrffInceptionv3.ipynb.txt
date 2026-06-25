@@ -1,0 +1,82 @@
+# Source: LIME-XAI-Facial-Disease-Classification/Investigations/ffhqrffInceptionv3.ipynb (Code cell 6; absolute cell 6)
+# create the base pre_trained model
+base_model = InceptionV3(weights="imagenet", include_top=False)
+
+# adding a global spatial average pooling layer
+x = base_model.output
+x = GlobalAveragePooling2D()(x)
+
+# adding fully connected layer
+x = Dense(1024, activation="relu")(x)
+
+
+# adding a logistic output layer
+predictions = Dense(1, activation="sigmoid")(x)
+
+# to train
+model = Model(inputs=base_model.input, outputs=predictions)
+
+model.summary()
+
+# train only top layers
+# freeze all convolutional InceptionV3 layers
+for layer in base_model.layers:
+    layer.trainable = False
+
+
+# compile the model
+model.compile(
+    optimizer=RMSprop(learning_rate=0.001), loss="binary_crossentropy", metrics=["acc"]
+)
+
+# choose to train top 2 inception blocks, i.e to freeze
+
+# call each layers to observe which to freeze or upfreeze
+for i, layer in enumerate(base_model.layers):
+    print(i, layer.name)
+
+# we chose to train the top 2 inception blocks, i.e. we will freeze
+# the first 249 layers and unfreeze the rest:
+for layer in model.layers[:249]:
+    layer.trainable = False
+for layer in model.layers[249:]:
+    layer.trainable = True
+
+# compile the model
+model.compile(loss="binary_crossentropy", optimizer=Nadam(), metrics=["acc"])
+
+# add data augmentation
+train_datagen = ImageDataGenerator(
+    rescale=1.0 / 255,
+    rotation_range=40,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode="nearest",
+)
+
+validation_datagen = ImageDataGenerator(rescale=1.0 / 255)
+test_datagen = ImageDataGenerator(rescale=1.0 / 255)
+
+print(train_dir)
+print(validation_dir)
+
+train_generator = train_datagen.flow_from_directory(
+    train_dir, target_size=(299, 299), batch_size=4, class_mode="binary"
+)
+
+validation_generator = validation_datagen.flow_from_directory(
+    validation_dir, target_size=(299, 299), batch_size=4, class_mode="binary"
+)
+
+
+history = model.fit(
+    train_generator,
+    steps_per_epoch=15,
+    epochs=10,
+    verbose=1,
+    validation_data=validation_generator,
+    validation_steps=10,
+)

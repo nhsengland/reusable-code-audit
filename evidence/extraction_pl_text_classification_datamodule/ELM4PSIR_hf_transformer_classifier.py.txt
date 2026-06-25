@@ -1,0 +1,88 @@
+# Source: ELM4PSIR/classification_tasks/models/transformer_plms/hf_transformer_classifier.py (Lines 83-169)
+class IncidentDataset(Dataset):
+    def __init__(
+        self,
+        data: pd.DataFrame,
+        tokenizer: AutoTokenizer,
+        max_token_len: int = 512,
+        mode="train",
+        label_col="label",
+    ):
+        self.tokenizer = tokenizer
+        self.data = data
+        self.max_token_len = max_token_len
+        self.mode = mode
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index: int):
+        data_row = self.data.iloc[index]
+
+        all_text = data_row["text"]
+        labels = data_row["label"]
+        # encoding = self.tokenizer.encode_plus(
+        #   all_text,
+        #   add_special_tokens=True,
+        #   max_length=self.max_token_len,
+        #   return_token_type_ids=False,
+        #   padding="max_length",
+        #   truncation=True,
+        #   return_attention_mask=True,
+        #   return_tensors='pt',
+        # )
+        encoding = self.tokenizer(
+            all_text,
+            padding="max_length",
+            truncation=True,
+            max_length=self.max_token_len,
+            return_tensors="pt",
+        )
+
+        # TODO  - implement a balancing of the dataset - i.e. have around 50-50 split
+        # of labels
+
+        return dict(
+            input_ids=encoding["input_ids"].flatten(),
+            attention_mask=encoding["attention_mask"].flatten(),
+            labels=torch.tensor(labels),
+        )
+
+
+# data module class - wrapped around pytorch lightning data module
+class IncidentDataModule(pl.LightningDataModule):
+    def __init__(
+        self, train_df, valid_df, test_df, tokenizer, batch_size=2, max_token_len=512
+    ):
+        super().__init__()
+        self.batch_size = batch_size
+        self.train_df = train_df
+        self.valid_df = valid_df
+        self.test_df = test_df
+        self.tokenizer = tokenizer
+        self.max_token_len = max_token_len
+
+        logger.warning(f"size of training dataset: {len(train_df)} ")
+        logger.warning(f"size of validation dataset: {len(valid_df)} ")
+        logger.warning(f"size of test dataset: {len(test_df)} ")
+
+    def setup(self, stage=None):
+        self.train_dataset = IncidentDataset(
+            self.train_df, self.tokenizer, self.max_token_len
+        )
+
+        self.valid_dataset = IncidentDataset(
+            self.valid_df, self.tokenizer, self.max_token_len
+        )
+        self.test_dataset = IncidentDataset(
+            self.test_df, self.tokenizer, self.max_token_len
+        )
+
+    def train_dataloader(self):
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
+
+    def val_dataloader(self):
+        return DataLoader(self.valid_dataset, batch_size=self.batch_size)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_dataset, batch_size=self.batch_size)

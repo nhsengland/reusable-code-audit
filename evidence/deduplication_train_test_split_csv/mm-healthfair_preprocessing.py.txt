@@ -1,0 +1,204 @@
+# Source: mm-healthfair/src/utils/preprocessing.py (Lines 536-738)
+def generate_train_val_test_set(
+    ehr_data: pl.DataFrame,
+    output_path: str = "../outputs/processed_data",
+    outcome_col: str = "in_hosp_death",
+    output_summary_path: str = "../outputs/exp_data",
+    seed: int = 0,
+    train_ratio: float = 0.8,
+    val_ratio: float = 0.1,
+    test_ratio: float = 0.1,
+    cont_cols: list = None,
+    nn_cols: list = None,
+    disp_dict: dict = None,
+    stratify: bool = True,
+    verbose: bool = True,
+) -> dict:
+    """
+    Create train/val/test split from static EHR data and save patient IDs across each split.
+
+    Args:
+        ehr_data (pl.DataFrame): Static EHR dataset.
+        output_path (str): Directory to save split IDs.
+        outcome_col (str): Outcome column name.
+        output_summary_path (str): Directory to save summary.
+        seed (int): Random seed.
+        train_ratio (float): Proportion for training set.
+        val_ratio (float): Proportion for validation set.
+        test_ratio (float): Proportion for test set.
+        cont_cols (list): Continuous columns.
+        nn_cols (list): Non-normal columns.
+        disp_dict (dict): Display name mapping.
+        stratify (bool): If True, stratify splits balancing the sets by outcome prevalence, gender and ethnicity.
+        verbose (bool): If True, print summary.
+
+    Returns:
+        dict: Dictionary with train, val, and test DataFrames.
+    """
+    ### Define display dictionary
+    disp_dict = {
+        "anchor_age": "Age",
+        "gender": "Gender",
+        "race_group": "Ethnicity",
+        "insurance": "Insurance",
+        "marital_status": "Marital status",
+        "in_hosp_death": "In-hospital death",
+        "ext_stay_7": "Extended stay",
+        "non_home_discharge": "Non-home discharge",
+        "icu_admission": "ICU admission",
+        "is_multimorbid": "Multimorbidity",
+        "is_complex_multimorbid": "Complex multimorbidity",
+    }
+    cont_cols = ["Age"]
+    ### List non-normally distributed columns here for re-scaling
+    ## TODO: Would need to move this to an appropriate config file
+    nn_cols = [
+        "total_n_presc",
+        "n_unique_conditions",
+        "n_presc_acetaminophen",
+        "n_presc_acyclovir",
+        "n_presc_albuterol_neb_soln",
+        "n_presc_amlodipine",
+        "n_presc_apixaban",
+        "n_presc_aspirin",
+        "n_presc_atorvastatin",
+        "n_presc_calcium_carbonate",
+        "n_presc_carvedilol",
+        "n_presc_cefepime",
+        "n_presc_ceftriaxone",
+        "n_presc_docusate_sodium",
+        "n_presc_famotidine",
+        "n_presc_folic_acid",
+        "n_presc_furosemide",
+        "n_presc_gabapentin",
+        "n_presc_heparin",
+        "n_presc_hydralazine",
+        "n_presc_hydromorphone_dilaudid",
+        "n_presc_insulin",
+        "n_presc_ipratropium_albuterol_neb",
+        "n_presc_lactulose",
+        "n_presc_levetiracetam",
+        "n_presc_levothyroxine_sodium",
+        "n_presc_lisinopril",
+        "n_presc_lorazepam",
+        "n_presc_metoprolol_succinate_xl",
+        "n_presc_metoprolol_tartrate",
+        "n_presc_metronidazole",
+        "n_presc_midodrine",
+        "n_presc_morphine_sulfate",
+        "n_presc_multivitamins",
+        "n_presc_omeprazole",
+        "n_presc_ondansetron",
+        "n_presc_oxycodone",
+        "n_presc_pantoprazole",
+        "n_presc_piperacillin_tazobactam",
+        "n_presc_polyethylene_glycol",
+        "n_presc_potassium_chloride",
+        "n_presc_prednisone",
+        "n_presc_rifaximin",
+        "n_presc_senna",
+        "n_presc_sevelamer_carbonate",
+        "n_presc_tacrolimus",
+        "n_presc_thiamine",
+        "n_presc_vancomycin",
+        "n_presc_vitamin_d",
+        "n_presc_warfarin",
+        "pon_nutrition",
+        "pon_cardiology",
+        "pon_respiratory",
+        "pon_neurology",
+        "pon_radiology",
+        "pon_tpn",
+        "pon_hemodialysis",
+    ]
+
+    cat_cols = [
+        "In-hospital death",
+        "Extended stay",
+        "Non-home discharge",
+        "ICU admission",
+        "Multimorbidity",
+        "Complex multimorbidity",
+    ]
+
+    ### Set stratification columns to include sensitive attributes + target outcome
+    ehr_data = ehr_data.to_pandas()
+    if stratify:
+        strat_target = pd.concat(
+            [ehr_data[outcome_col], ehr_data["gender"], ehr_data["race_group"]], axis=1
+        )
+        split_target = ehr_data.drop([outcome_col, "gender", "race_group"], axis=1)
+        ### Generate split dataframes
+        train_x, test_x, train_y, test_y = train_test_split(
+            split_target,
+            strat_target,
+            test_size=(1 - train_ratio),
+            random_state=seed,
+            stratify=strat_target,
+        )
+        val_x, test_x, val_y, test_y = train_test_split(
+            test_x,
+            test_y,
+            test_size=test_ratio / (test_ratio + val_ratio),
+            random_state=seed,
+            stratify=test_y,
+        )
+    else:
+        train_x, test_x, train_y, test_y = train_test_split(
+            ehr_data.drop([outcome_col], axis=1),
+            ehr_data[outcome_col],
+            test_size=(1 - train_ratio),
+            random_state=seed,
+        )
+        val_x, test_x, val_y, test_y = train_test_split(
+            test_x,
+            test_y,
+            test_size=test_ratio / (test_ratio + val_ratio),
+            random_state=seed,
+        )
+
+    ### Re-scale EHR data for MLP classifier
+    scaler = MinMaxScaler()
+    train_x[nn_cols] = scaler.fit_transform(train_x[nn_cols])
+    val_x[nn_cols] = scaler.transform(val_x[nn_cols])  # Apply transformation to val_x
+    test_x[nn_cols] = scaler.transform(
+        test_x[nn_cols]
+    )  # Apply transformation to test_x
+    train_x = pd.concat([train_x, train_y], axis=1)
+    val_x = pd.concat([val_x, val_y], axis=1)
+    test_x = pd.concat([test_x, test_y], axis=1)
+    train_x["set"] = "train"
+    val_x["set"] = "val"
+    test_x["set"] = "test"
+    ### Print summary statistics
+    if verbose:
+        print(
+            f"Created split with {train_x.shape[0]}({round(train_x.shape[0]/len(ehr_data), 2)*100}%) samples in train, {val_x.shape[0]}({round(val_x.shape[0]/len(ehr_data), 2)*100}%) samples in validation, and {test_x.shape[0]}({round(test_x.shape[0]/len(ehr_data), 2)*100}%) samples in test."
+        )
+        print("Getting summary statistics for split...")
+        get_train_split_summary(
+            train_x,
+            val_x,
+            test_x,
+            outcome_col,
+            output_summary_path,
+            cont_cols,
+            nn_cols,
+            disp_dict,
+            cat_cols,
+            verbose=verbose,
+        )
+        print(f"Saving train/val/test split IDs to {output_path}")
+
+    ### Save patient IDs
+    train_x[["subject_id"]].to_csv(
+        os.path.join(output_path, "training_ids_" + outcome_col + ".csv"), index=False
+    )
+    val_x[["subject_id"]].to_csv(
+        os.path.join(output_path, "validation_ids_" + outcome_col + ".csv"), index=False
+    )
+    test_x[["subject_id"]].to_csv(
+        os.path.join(output_path, "testing_ids_" + outcome_col + ".csv"), index=False
+    )
+
+    return {"train": train_x, "val": val_x, "test": test_x}

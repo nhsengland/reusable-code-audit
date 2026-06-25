@@ -1,0 +1,68 @@
+# Source: mm-healthfair/src/utils/preprocessing.py (Lines 766-832)
+def process_text_to_embeddings(notes: pl.DataFrame) -> dict:
+    """
+    Generate embeddings using the Bio+Discharge ClinicalBERT model pre-trained on MIMIC-III discharge summaries.
+    The current setup uses a SpaCy tokenizer mapped to a PyTorch object for GPU support.
+    Text length is limited to 128 tokens per clinical note, with included padding and truncation where appropriate.
+    The pre-trained model is provided by Alsentzer et al. (https://huggingface.co/emilyalsentzer/Bio_Discharge_Summary_BERT).
+
+    Args:
+        notes (pl.DataFrame): DataFrame containing notes data.
+
+    Returns:
+        dict: Mapping from subject_id to list of (sentence, embedding) pairs.
+    """
+    embeddings_dict = {}
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    nlp = spacy.load("en_core_sci_md", disable=["ner", "parser"])
+    nlp.add_pipe("sentencizer")
+    tokenizer = AutoTokenizer.from_pretrained(
+        "emilyalsentzer/Bio_Discharge_Summary_BERT"
+    )
+    model = AutoModel.from_pretrained("emilyalsentzer/Bio_Discharge_Summary_BERT").to(
+        device
+    )
+    # randomly downsample notes for testing
+    # notes = notes.sample(fraction=0.05)
+    for row in tqdm(
+        notes.iter_rows(named=True),
+        desc="Generating notes embeddings with ClinicalBERT...",
+        total=notes.height,
+    ):
+        subj_id = row["subject_id"]
+        text = row["target"]
+
+        # Turn text into sentences
+        doc = nlp(text)
+        sentences = [sent.text for sent in doc.sents]
+
+        # Tokenize all sentences at once
+        inputs = tokenizer(
+            sentences,
+            return_tensors="pt",
+            truncation=True,
+            padding=True,
+            max_length=128,
+            return_attention_mask=True,
+        ).to(device)
+
+        # Generate embeddings for all sentences in a single forward pass
+        with torch.no_grad():
+            outputs = model(**inputs)
+            sentence_embeddings = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+
+        if sentence_embeddings.size > 0:
+            embeddings = np.mean(sentence_embeddings, axis=0)
+        else:
+            embeddings = np.zeros((768,))  # Handle case with no sentences
+
+        # Map each sentence to its embedding
+        sentence_embedding_pairs = list(zip(sentences, embeddings, strict=False))
+
+        # Store the mapping in the dictionary
+        embeddings_dict[subj_id] = sentence_embedding_pairs
+
+    return embeddings_dict

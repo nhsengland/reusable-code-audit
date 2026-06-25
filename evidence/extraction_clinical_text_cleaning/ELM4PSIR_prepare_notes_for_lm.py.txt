@@ -1,0 +1,70 @@
+# Source: ELM4PSIR/utils/prepare_notes_for_lm.py (Lines 70-138)
+    def clean_data(
+        self,
+        admin_language,
+        notes_df: pd.DataFrame,
+        min_tokens=5,
+        replacement_map=None,
+        remove_punctuation=False,
+    ) -> pd.DataFrame:
+        """
+         TODO - add function to allow mapping of known acronyms to full words
+
+         Basic cleaning of the text with some standardisation of punctuation and
+         removal of certain characters.
+
+         Args:
+             text_col (string): name of column with text in
+             notes_df (pd.DataFrame): CRIS produced clinical notes with following
+             possible cols:
+
+
+        Returns: pd.DataFrame: notes_df, filtered of redundant text
+        """
+
+        logger.info("Cleaning data!")
+
+        text_col = self.text_col
+        filtered_df = notes_df.copy()
+
+        # remove rows with no data/clinical date data
+
+        # remove some punctuation
+        if remove_punctuation:
+            filtered_df[text_col] = filtered_df[text_col].replace(
+                r"\[.*?\]", "", regex=True
+            )
+
+        # print("Cleaning and applying some regex rules!")
+        # remove refundnant new lines etc
+        # nan_value = float("NaN")
+
+        # heuristic rules
+        for original, replacement in tqdm(self.replacement_map):
+            # drop if text is none
+            filtered_df = filtered_df[filtered_df[text_col].notna()]
+
+            # in case dataframe is empty after drop
+            if filtered_df.empty:
+                return filtered_df
+
+            filtered_df[text_col] = filtered_df[text_col].str.replace(
+                original, replacement
+            )
+
+        # if admin language is not none, try remove?
+        if admin_language is not None:
+            for admin_token in admin_language:
+                filtered_df[text_col] = filtered_df[text_col].str.replace(
+                    admin_token, " "
+                )
+        # strip white space and lower case
+        filtered_df[text_col] = filtered_df[text_col].str.strip()
+        filtered_df[text_col] = filtered_df[text_col].str.lower()
+
+        # found white spaces still persist - so now double remove them
+        filtered_df[text_col] = [re.sub(r"\\s+", " ", x) for x in filtered_df[text_col]]
+
+        # drop na
+
+        return filtered_df.dropna()

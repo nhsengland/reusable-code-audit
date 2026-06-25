@@ -1,0 +1,51 @@
+# Source: priv-lm-health/privlm/mi_attack.py (Lines 149-198)
+def return_lr(test_inputs, model_path, device, sequence_score_type):
+    batched_test_inputs = [x for x in create_batch(test_inputs, 1)]
+
+    print("Calculating Sequence Scores Per Batch")
+    PLLwordl2r_model = []
+    for batch in tqdm(batched_test_inputs):
+        target_model = scorer.MaskedLMScorer(model_path, device=str(device))
+        target_model_batch = target_model.sequence_score(
+            batch, PLL_metric=sequence_score_type, reduction=lambda x: x.mean(0).item()
+        )
+        torch.cuda.empty_cache()
+        PLLwordl2r_model.extend(target_model_batch)
+
+    return PLLwordl2r_model
+
+
+def return_loss(test_inputs, model_path, device):
+    print("Calculating Loss Per Sequence")
+    tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
+    target_model = RobertaForMaskedLM.from_pretrained(model_path)
+    losses = []
+    for sentence in tqdm(test_inputs):
+        input = tokenizer(
+            sentence,
+            max_length=256,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt",
+        )
+        input_ids = input["input_ids"]
+        labels = copy.deepcopy(input_ids)
+        attention_mask = input["attention_mask"]
+        input_ids = input_ids.to(device)
+        labels = labels.to(device)
+        attention_mask = attention_mask.to(device)
+        target_model.to(device)
+        target_model.eval()
+        output = target_model(
+            input_ids=input_ids, labels=labels, attention_mask=attention_mask
+        )
+        # logits = output.logits
+        loss = output.loss.item()
+        # loss2 = F.cross_entropy(logits.view(
+        #     -1,
+        #     tokenizer.vocab_size
+        # ), labels.view(-1)).item()
+        # assert loss == loss2
+        losses.append(loss)
+
+    return losses

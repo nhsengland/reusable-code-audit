@@ -1,0 +1,81 @@
+# Source: mm-healthfair/src/train.py (Lines 20-99)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Multimodal learning pipeline.")
+    parser.add_argument(
+        "data_path",
+        type=str,
+        help="Path to the pickled data dictionary generated from prepare_data.py.",
+        default="../outputs/processed_data/mmfair_feat.pkl",
+    )
+    parser.add_argument(
+        "--col_path",
+        "-p",
+        type=str,
+        help="Path to the pickled column dictionary generated from prepare_data.py.",
+        default="../outputs/processed_data/mmfair_cols.pkl",
+    )
+    parser.add_argument(
+        "--ids_path",
+        "-i",
+        type=str,
+        help="Directory containing train/val/test ids.",
+        default="../outputs/processed_data",
+    )
+    parser.add_argument(
+        "--outcome",
+        "-o",
+        type=str,
+        help="Binary outcome to use for multimodal learning (one of the labels in targets.toml)."
+        "Defaults to prediction of in-hospital death.",
+        default="in_hosp_death",
+    )
+    parser.add_argument(
+        "--config",
+        "-c",
+        type=str,
+        default="../config/model.toml",
+        help="Path to config toml file containing model training parameters.",
+    )
+    parser.add_argument(
+        "--targets",
+        "-t",
+        type=str,
+        default="../config/targets.toml",
+        help="Path to config toml file containing lookup fields and outcomes.",
+    )
+    parser.add_argument(
+        "--cpu", action="store_true", help="Whether to use cpu. Defaults to gpu"
+    )
+    parser.add_argument(
+        "--sample",
+        type=int,
+        default=None,
+        help="Randomly sample subjects for testing. Training set will equal sample, validation set will be 1/5th of sample.",
+    )
+    parser.add_argument(
+        "--use_class_weights",
+        action="store_true",
+        help="Whether to use class weights for training. Defaults to False.",
+    )
+    parser.add_argument(
+        "--use_debiasing",
+        action="store_true",
+        help="Whether to use adversarial debiasing to penalize the model's decisions if influenced by sensitive attributes. Target attribute indices in dictionary can be defined in dbindices within targets.toml. Defaults to False.",
+    )
+    parser.add_argument(
+        "--project",
+        type=str,
+        default="nhs-mm-healthfair",
+        help="Name of project, used for wandb logging.",
+    )
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Whether to use wandb for logging. Defaults to False",
+    )
+    args = parser.parse_args()
+
+    config = toml.load(args.config)
+    targets = toml.load(args.targets)
+    device = "gpu" if not args.cpu else "cpu"
+    use_wandb = args.wandb

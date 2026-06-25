@@ -1,0 +1,24 @@
+# Source: mm-healthfair/src/utils/functions.py (Lines 168-190)
+def read_icd_mapping(map_path: str) -> pl.DataFrame:
+    """
+    Reads ICD-9 to ICD-10 mapping file for chronic conditions.
+    """
+    mapping = pl.read_csv(map_path, separator="\t", encoding="iso-8859-1")
+    mapping = mapping.with_columns(pl.col("diagnosis_description").str.to_lowercase())
+    return mapping
+
+
+def contains_both_ltc_types(ltc_set: set) -> bool:
+    """
+    Helper util function for physical-mental multimorbidity detection.
+
+    Args:
+        ltc_set (set): Set containing LTC codes.
+
+    Returns:
+        bool: True if both physical and mental LTC types are present, False otherwise.
+    """
+    ltc_series = pl.Series(list(ltc_set))
+    physltc_present = ltc_series.str.starts_with("physltc_").any()
+    menltc_present = ltc_series.str.starts_with("menltc_").any()
+    return physltc_present and menltc_present

@@ -1,0 +1,44 @@
+# Source: evalsense/evalsense/utils/text.py (Lines 57-99)
+@overload
+def extract_ternary_answer(
+    text: str, binary_only: Literal[True], unknown_on_mismatch: Literal[False] = False
+) -> bool: ...
+@overload
+def extract_ternary_answer(
+    text: str, binary_only: Literal[False], unknown_on_mismatch: bool = True
+) -> bool | None: ...
+def extract_ternary_answer(
+    text: str, binary_only: bool, unknown_on_mismatch: bool = True
+) -> bool | None:
+    """
+    Extract a ternary answer (True/False/Unknown) from the text.
+
+    Valid answers are 'yes', 'no', 'true', 'false', 'unknown', and 'I don't know'.
+
+    Args:
+        text (str): The text to extract the answer from.
+        binary_only (bool): If True, only 'yes' or 'no' are valid answers.
+        unknown_on_mismatch (bool): If True, return None for answers not
+            matching any of the valid answers. If False, raise an error.
+            Only relevant if binary_only is False. Defaults to True.
+
+    Returns:
+        bool | None: The extracted answer - bool for True/False, None for Unknown.
+    """
+    pattern = r"\b(?:yes|no|true|false|unknown|i don't know)\b"
+    match = regex.search(pattern, text, regex.IGNORECASE)
+    if match:
+        answer = match.group(0).lower()
+        if answer in ["yes", "true"]:
+            return True
+        elif answer in ["no", "false"]:
+            return False
+        else:
+            if binary_only:
+                raise ValueError(
+                    "Binary answer expected, but 'unknown' or 'I don't know' found."
+                )
+            return None
+    if not binary_only and unknown_on_mismatch:
+        return None
+    raise ValueError(f"Unable to extract a binary answer from text: {text}.")

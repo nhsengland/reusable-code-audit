@@ -1,0 +1,92 @@
+# Source: priv-lm-health-extended/memorisation/mimir.py (Lines 150-240)
+    @torch.no_grad()
+    def get_ll(self, text: str, tokens: np.ndarray = None, probs=None):
+        """
+        Get the log likelihood of each text under the base_model.
+
+        Args:
+            text (str): The input text for which to calculate the log likelihood.
+            tokens (numpy.ndarray, optional): An optional array of token ids. If provided, these tokens
+            are used instead of tokenizing the input text. Defaults to None.
+            probs (list, optional): An optional list of probabilities. If provided, these probabilities
+            are used instead of calling the `get_probabilities` method. Defaults to None.
+        """
+        all_prob = (
+            probs if probs is not None else self.get_probabilities(text, tokens=tokens)
+        )
+        return -np.mean(all_prob)
+
+    def load_model_properties(self):
+        """
+        Load model properties, such as max length and stride.
+        """
+        # TODO: getting max_length of input could be more generic
+        if "silo" in self.name or "balanced" in self.name:
+            self.max_length = self.model.model.seq_len
+        elif hasattr(self.model.config, "max_position_embeddings"):
+            self.max_length = self.model.config.max_position_embeddings
+        elif hasattr(self.model.config, "n_positions"):
+            self.max_length = self.model.config.n_positions
+        else:
+            # Default window size
+            self.max_length = 1024
+        self.stride = self.max_length // 2
+
+
+class ReferenceModel(Model):
+    def __init__(self, name: str):
+        self.device = "cuda"
+        self.name = name
+        base_model_kwargs = {"revision": "main"}
+        base_model_kwargs.update(dict(torch_dtype=torch.float16))
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            name, use_fast=False, cache_dir=os.environ["HF_HOME"]
+        )
+        self.model = AutoModelForCausalLM.from_pretrained(
+            name,
+            load_in_4bit=True,
+            offload_folder="offload",
+            device_map="auto",
+            cache_dir=os.environ["HF_HOME"],
+        )
+        self.load_model_properties()
+
+
+class LanguageModel(Model):
+    def __init__(self, name, is_peft=False, **kwargs):
+        super().__init__(**kwargs)
+        self.device = "cuda"
+        self.device_map = "auto"
+        self.name = name
+        base_model_kwargs = {"revision": "main"}
+        base_model_kwargs.update(dict(torch_dtype=torch.float16))
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            name, use_fast=False, cache_dir=os.environ["HF_HOME"]
+        )
+        if is_peft:
+            self.model = AutoPeftModelForCausalLM.from_pretrained(
+                name,
+                load_in_4bit=True,
+                offload_folder="offload",
+                device_map="auto",
+                cache_dir=os.environ["HF_HOME"],
+            )
+        else:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                name,
+                load_in_4bit=True,
+                offload_folder="offload",
+                device_map="auto",
+                cache_dir=os.environ["HF_HOME"],
+            )
+        self.load_model_properties()
+
+    @torch.no_grad()
+    def get_ref(self, text: str, ref_model: ReferenceModel, tokens=None, probs=None):
+        """
+        Compute the loss of a given text calibrated against the text's loss under a reference model -- MIA baseline
+        """
+        lls = self.get_ll(text, tokens=tokens, probs=probs)
+        lls_ref = ref_model.get_ll(text)
+
+        return lls - lls_ref

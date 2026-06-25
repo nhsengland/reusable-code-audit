@@ -1,0 +1,53 @@
+# Source: commercial-data-healthcare-predictions/MCR_for_op_rf.py (Lines 44-58)
+y = df['cnt']
+print('y','\n',y)
+
+#assign data to X features
+X = df[['weeknum', 'ltla_week_sales_17', 'decongestant_17', 'throat_17', 
+        'cough_dry_17','cough_all_17', 'ltla_week_sales_24', 'decongestant_24',
+        'throat_24', 'cough_dry_24', 'cough_all_24','decongestant_lr',
+        'throat_lr', 'cough_dry_lr', 'cough_all_lr','decongestant_m',
+        'throat_m', 'cough_dry_m', 'cough_all_m', 'liv_env_score', 'crime_score', 
+        'housing_score', 'pop_16to24', 'pop_25to49', 'pop_50to64', 'pop_over65', 'pop_density', 'pct_male', 
+        'pct_female', 'imd_rank', 'imd_score', 'imd_extent', 'imd_concentration', 'pct_pre1919', 'pct_pre1940', 
+        'pct_pre1973', 'pct_pre1983', 'pct_community', 'pct_industrial', 'pct_residential', 'pct_transport', 
+        'pct_agriculture', 'pct_natural', 'pct_recreation', 'pct_non_white', 'pct_lone_parent', 
+        'pct_other_children', 'pct_detached', 'pct_semi', 'pct_terraced', 'pct_flat', 'average_rainfall',
+        'total_rainfall', 'min_temp', 'average_temp', 'max_temp']] 
+
+# Source: commercial-data-healthcare-predictions/MCR_for_op_rf.py (Lines 119-153)
+# Make a list of columns to create grouped variables for grouped MCR
+
+week_col = ['weeknum']
+
+sales_cols = ['ltla_week_sales_17', 'decongestant_17', 'throat_17', 
+        'cough_dry_17','cough_all_17', 'ltla_week_sales_24', 'decongestant_24',
+        'throat_24', 'cough_dry_24', 'cough_all_24','decongestant_lr',
+        'throat_lr', 'cough_dry_lr', 'cough_all_lr','decongestant_m',
+        'throat_m', 'cough_dry_m', 'cough_all_m']
+
+imd_cols = ['liv_env_score', 'crime_score','housing_score','imd_rank', 'imd_score',
+            'imd_extent', 'imd_concentration']
+
+age_cols = ['pop_density','pop_16to24', 'pop_25to49', 'pop_50to64', 'pop_over65']
+
+demo_cols =['pct_male','pct_female','pct_non_white', 'pct_lone_parent','pct_other_children']
+
+housing_cols = ['pct_pre1919', 'pct_pre1940','pct_pre1973', 'pct_pre1983','pct_detached', 'pct_semi',
+                'pct_terraced', 'pct_flat']
+
+land_use_cols = ['pct_community', 'pct_industrial', 'pct_residential', 'pct_transport','pct_agriculture',
+                 'pct_natural', 'pct_recreation']
+
+weather_cols = ['average_rainfall','total_rainfall', 'min_temp', 'average_temp', 'max_temp']
+
+
+# Set up the grouped variabled for grouped MCR
+
+mcr_groupings =  [week_col, sales_cols, imd_cols, age_cols, demo_cols, housing_cols, land_use_cols, weather_cols]
+
+grouping_names = [ 'week', 'sales', 'imd', 'age', 'demo', 'housing', 'land_use', 'weather']
+
+grouping_names2indexes = {}
+for i, g in enumerate(grouping_names):
+    grouping_names2indexes[g] = np.asarray([ X_train.columns.tolist().index(v) for v in mcr_groupings[i] ])

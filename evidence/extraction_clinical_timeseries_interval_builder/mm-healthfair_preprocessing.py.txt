@@ -1,0 +1,439 @@
+# Source: mm-healthfair/src/utils/preprocessing.py (Lines 887-1325)
+def add_time_elapsed_to_events(
+    events: pl.DataFrame, starttime: pl.Datetime, remove_charttime: bool = False
+) -> pl.DataFrame:
+    """
+    Add a column for time elapsed since a reference start time.
+
+    Args:
+        events (pl.DataFrame): Events table.
+        starttime (pl.Datetime): Reference start time.
+        remove_charttime (bool): If True, remove charttime column.
+
+    Returns:
+        pl.DataFrame: Updated events table.
+    """
+    events = events.with_columns(
+        elapsed=((pl.col("charttime") - starttime) / pl.duration(hours=1)).round(1)
+    )
+
+    # reorder columns
+    if remove_charttime:
+        events = events.drop("charttime")
+
+    return events
+
+
+def convert_events_to_timeseries(events: pl.DataFrame) -> pl.DataFrame:
+    """
+    Convert long-form events to wide-form time-series.
+
+    Args:
+        events (pl.DataFrame): Long-form events.
+
+    Returns:
+        pl.DataFrame: Wide-form time-series.
+    """
+
+    metadata = (
+        events.select(["charttime", "label", "value", "linksto"])
+        .sort(by=["charttime", "label", "value"])
+        .unique(subset=["charttime"], keep="last")
+        .sort(by="charttime")
+    )
+
+    # get unique label, values and charttimes
+    timeseries = (
+        events.select(["charttime", "label", "value"])
+        .sort(by=["charttime", "label", "value"])
+        .unique(subset=["charttime", "label"], keep="last")
+    )
+
+    # pivot into wide-form format
+    timeseries = timeseries.pivot(
+        index="charttime", columns="label", values="value"
+    ).sort(by="charttime")
+
+    # join any metadata remaining
+    timeseries = timeseries.join(
+        metadata.select(["charttime", "linksto"]), on="charttime", how="inner"
+    )
+    return timeseries
+
+
+def generate_interval_dataset(
+    ehr_static: pl.DataFrame,
+    ts_data: pl.DataFrame,
+    ehr_regtime: pl.DataFrame,
+    vitals_freq: str = "5h",
+    lab_freq: str = "1h",
+    min_events: int = None,
+    max_events: int = None,
+    impute: str = "value",
+    include_dyn_mean: bool = False,
+    no_resample: bool = False,
+    standardize: bool = False,
+    max_elapsed: int = None,
+    vitals_lkup: list = None,
+    outcomes: list = None,
+    verbose: bool = True,
+) -> dict:
+    """
+    Generate a time-series dataset with set intervals for each event source (vital signs and lab measurements).
+
+    Args:
+        ehr_static (pl.DataFrame): Static EHR data.
+        ts_data (pl.DataFrame): Time-series data.
+        ehr_regtime (pl.DataFrame): Lookup dataframe for ED arrival times.
+        vitals_freq (str): Frequency for vitals resampling.
+        lab_freq (str): Frequency for labs resampling.
+        min_events (int): Include only patients with a minimum number of events.
+        max_events (int): Include only patients with a maximum number of events.
+        impute (str): Imputation method. Options are "value" (filling with -1), "forward" filling, "backward" filling or "mask" creating a string indicator for missingness.
+        include_dyn_mean (bool): If True, add dynamic mean features to static dataset.
+        no_resample (bool): If True, skip resampling.
+        standardize (bool): If True, standardize data using min-max scaling.
+        max_elapsed (int): Restrict collected measurements within the set hours from ED arrival.
+        vitals_lkup (list): List of vital sign features.
+        outcomes (list): List of outcome columns.
+        verbose (bool): If True, print summary.
+
+    Returns:
+        dict: Data dictionary and column dictionary.
+    """
+
+    data_dict = {}
+    col_dict = {}
+    n = 0
+    filter_by_nb_events = 0
+    missing_event_src = 0
+    filter_by_elapsed_time = 0
+    n_src = ts_data.n_unique("linksto")
+    ehr_lkup = ehr_static.drop("subject_id")
+    ehr_lkup = ehr_lkup.drop(outcomes)
+    col_dict["static_cols"] = ehr_lkup.columns
+    col_dict["dynamic0_cols"] = vitals_lkup
+    col_dict["notes_cols"] = ["sentence", "embedding"]
+
+    feature_map, freq = _prepare_feature_map_and_freq(ts_data, vitals_freq, lab_freq)
+    min_events = 1 if min_events is None else int(min_events)
+    max_events = 1e6 if max_events is None else int(max_events)
+
+    ## Standardize vital signs data between 0 and 1
+    if standardize:
+        ts_data = _standardize_data(ts_data)
+    ts_data = ts_data.sort(by=["subject_id", "charttime"])
+    ehr_regtime = ehr_regtime.sort(by=["subject_id", "edregtime"])
+
+    for id_val in tqdm(
+        ts_data.unique("subject_id").get_column("subject_id").to_list(),
+        desc="Generating patient-level data...",
+    ):
+        pt_events = ts_data.filter(pl.col("subject_id") == id_val)
+        edregtime = (
+            ehr_regtime.filter(pl.col("subject_id") == id_val)
+            .select("edregtime")
+            .head(1)
+            .item()
+        )
+        ehr_sel = ehr_static.filter(pl.col("subject_id") == id_val)
+
+        if pt_events.n_unique("linksto") < n_src:
+            missing_event_src += 1
+            continue
+
+        write_data, ts_data_list, s_ec, s_et = _process_patient_events(
+            pt_events,
+            feature_map,
+            freq,
+            ehr_static,
+            edregtime,
+            min_events,
+            max_events,
+            impute,
+            include_dyn_mean,
+            no_resample,
+            max_elapsed,
+        )
+
+        if s_ec:
+            filter_by_nb_events += 1
+            continue
+
+        if s_et:
+            filter_by_elapsed_time += 1
+            continue
+
+        if write_data:
+            ## Encode count features for training
+            ehr_cur = ehr_sel.drop(outcomes)
+            ehr_cur = ehr_cur.drop("subject_id").to_numpy()
+            data_dict[id_val] = {"static": ehr_cur}
+            for outcome in outcomes:
+                data_dict[id_val][outcome] = (
+                    ehr_sel.select(outcome).cast(pl.Int8).to_numpy()
+                )
+            for _, ts in enumerate(ts_data_list):
+                key = "dynamic_0" if ts.columns == vitals_lkup else "dynamic_1"
+                if key == "dynamic_1" and "dynamic1_cols" not in col_dict.keys():
+                    col_dict["dynamic1_cols"] = ts.columns
+                data_dict[id_val][key] = ts.to_numpy()
+            n += 1
+
+    if verbose:
+        _print_summary(
+            n, filter_by_nb_events, missing_event_src, filter_by_elapsed_time
+        )
+
+    return data_dict, col_dict
+
+
+def _prepare_feature_map_and_freq(
+    ts_data: pl.DataFrame, vitals_freq: str = "5h", lab_freq: str = "1h"
+) -> tuple[dict, dict]:
+    """
+    Prepare a mapping of feature names and frequency for each time-series source.
+
+    Args:
+        ts_data (pl.DataFrame): Time-series data containing a 'linksto' column.
+        vitals_freq (str): Frequency for vital signs.
+        lab_freq (str): Frequency for lab measurements.
+
+    Returns:
+        tuple: (feature_map, freq) where feature_map is a dict mapping data source to features,
+               and freq is a dict mapping data source to frequency string.
+    """
+    feature_map: dict = {}
+    freq: dict = {}
+    for src in tqdm(ts_data.unique("linksto").get_column("linksto").to_list()):
+        feature_map[src] = sorted(
+            ts_data.filter(pl.col("linksto") == src)
+            .unique("label")
+            .get_column("label")
+            .to_list()
+        )
+        freq[src] = vitals_freq if src == "vitalsign" else lab_freq
+    return feature_map, freq
+
+
+def _process_patient_events(
+    pt_events: pl.DataFrame,
+    feature_map: dict,
+    freq: dict,
+    ehr_static: pl.DataFrame,
+    edregtime: pl.Datetime,
+    min_events: int = 1,
+    max_events: int = None,
+    impute: str = "value",
+    include_dyn_mean: bool = False,
+    no_resample: bool = False,
+    max_elapsed: int = None,
+) -> tuple[bool, list[pl.DataFrame]]:
+    """
+    Process time-series events for a single patient, handling missing features, imputation, resampling, and filtering.
+
+    Args:
+        pt_events (pl.DataFrame): Patient's time-series events.
+        feature_map (dict): Mapping from source to feature names.
+        freq (dict): Mapping from source to frequency string.
+        ehr_static (pl.DataFrame): Static EHR data for the patient.
+        edregtime (pl.Datetime): Lookup dataframe for ED registration time.
+        min_events (int): Minimum number of measurements required.
+        max_events (int): Maximum number of measurements required.
+        impute (str): Imputation method. Options are "value" (filling with -1), "forward" filling, "backward" filling or "mask" creating a string indicator for missingness.
+        include_dyn_mean (bool): If True, add dynamic mean features.
+        no_resample (bool): If True, skip resampling.
+        max_elapsed (int): Restrict collected measurements within the set hours from ED arrival.
+
+    Returns:
+        tuple: (write_data, ts_data_list, skipped_due_to_event_count, skipped_due_to_elapsed_time)
+    """
+    write_data = True
+    ts_data_list = []
+    skipped_due_to_event_count = False
+    skipped_due_to_elapsed_time = False
+
+    for events_by_src in pt_events.partition_by("linksto"):
+        src = events_by_src.select(pl.first("linksto")).item()
+        timeseries = convert_events_to_timeseries(events_by_src)
+
+        if not _validate_event_count(timeseries, min_events, max_events):
+            skipped_due_to_event_count = True
+            return False, [], skipped_due_to_event_count, False
+
+        timeseries = _handle_missing_features(timeseries, feature_map[src])
+        timeseries, ehr_static = _impute_missing_values(timeseries, ehr_static, impute)
+
+        if include_dyn_mean:
+            ehr_static = _add_dynamic_mean(timeseries, ehr_static)
+
+        if not no_resample:
+            timeseries = _resample_timeseries(timeseries, freq[src])
+
+        if max_elapsed is not None:
+            timeseries = add_time_elapsed_to_events(timeseries, edregtime)
+            if timeseries.filter(pl.col("elapsed") <= max_elapsed).shape[0] == 0:
+                skipped_due_to_elapsed_time = True
+                return False, [], False, skipped_due_to_elapsed_time
+
+        ts_data_list.append(timeseries.select(feature_map[src]))
+
+    return (
+        write_data,
+        ts_data_list,
+        skipped_due_to_event_count,
+        skipped_due_to_elapsed_time,
+    )
+
+
+def _validate_event_count(
+    timeseries: pl.DataFrame, min_events: int = 1, max_events: int = 1e6
+) -> bool:
+    """
+    Check if the number of events in the timeseries is within the specified range.
+
+    Args:
+        timeseries (pl.DataFrame): Time-series data.
+        min_events (int): Minimum number of events.
+        max_events (int): Maximum number of events.
+
+    Returns:
+        bool: True if within range, False otherwise.
+    """
+    return min_events <= timeseries.shape[0] <= max_events
+
+
+def _handle_missing_features(
+    timeseries: pl.DataFrame, features: list[str] = None
+) -> pl.DataFrame:
+    """
+    Add missing columns to the timeseries DataFrame as nulls.
+
+    Args:
+        timeseries (pl.DataFrame): Time-series data.
+        features (list): List of required feature names.
+
+    Returns:
+        pl.DataFrame: Time-series data with missing columns added as nulls.
+    """
+    missing_cols = [x for x in features if x not in timeseries.columns]
+    return timeseries.with_columns(
+        [pl.lit(None, dtype=pl.Float64).alias(c) for c in missing_cols]
+    )
+
+
+def _impute_missing_values(
+    timeseries: pl.DataFrame, ehr_static: pl.DataFrame, impute: str = "value"
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """
+    Impute missing values in time-series and static EHR data.
+
+    Args:
+        timeseries (pl.DataFrame): Time-series data.
+        ehr_static (pl.DataFrame): Static EHR data.
+        impute (str): Imputation method ("mask", "forward", "backward", "value").
+
+    Returns:
+        tuple: (imputed_timeseries, imputed_ehr_static)
+    """
+    if impute == "mask":
+        timeseries = timeseries.with_columns(
+            [pl.col(f).is_null().alias(f + "_isna") for f in timeseries.columns]
+        )
+        ehr_static = ehr_static.with_columns(
+            [pl.col(f).is_null().alias(f + "_isna") for f in ehr_static.columns]
+        )
+    elif impute in ["forward", "backward"]:
+        timeseries = timeseries.fill_null(strategy=impute).fill_null(value=-1)
+        ehr_static = ehr_static.fill_null(value=-1)
+    elif impute == "value":
+        timeseries = timeseries.fill_null(value=-1)
+        ehr_static = ehr_static.fill_null(value=-1)
+    return timeseries, ehr_static
+
+
+def _add_dynamic_mean(
+    timeseries: pl.DataFrame, ehr_static: pl.DataFrame
+) -> pl.DataFrame:
+    """
+    Add mean of dynamic features to the static EHR data.
+
+    Args:
+        timeseries (pl.DataFrame): Time-series data.
+        ehr_static (pl.DataFrame): Static EHR data.
+
+    Returns:
+        pl.DataFrame: Static EHR data with dynamic means appended.
+    """
+    timeseries_mean = (
+        timeseries.drop(["charttime", "linksto"]).mean().with_columns(pl.all().round(3))
+    )
+    return ehr_static.hstack(timeseries_mean)
+
+
+def _resample_timeseries(timeseries: pl.DataFrame, freq: str = "1h") -> pl.DataFrame:
+    """
+    Resample the time-series data to a specified frequency.
+
+    Args:
+        timeseries (pl.DataFrame): The input time-series data.
+        freq (str): The frequency for resampling (e.g., "1h").
+
+    Returns:
+        pl.DataFrame: The resampled time-series data.
+    """
+    timeseries = timeseries.upsample(time_column="charttime", every="1m")
+    return (
+        timeseries.group_by_dynamic("charttime", every=freq)
+        .agg(pl.col(pl.Float64).mean())
+        .fill_null(strategy="forward")
+    )
+
+
+def _standardize_data(ts_data: pl.DataFrame) -> pl.DataFrame:
+    """
+    Standardize the 'value' column in the time-series data using min-max scaling.
+
+    Args:
+        ts_data (pl.DataFrame): The input time-series data.
+
+    Returns:
+        pl.DataFrame: Standardized time-series data.
+    """
+    min_val = ts_data["value"].min()
+    max_val = ts_data["value"].max()
+    ts_data = ts_data.with_columns(
+        ((pl.col("value") - min_val) / (max_val - min_val)).alias("value")
+    )
+
+    return ts_data
+
+
+def _print_summary(
+    n: int = 0,
+    filter_by_nb_events: int = 0,
+    missing_event_src: int = 0,
+    filter_by_elapsed_time: int = 0,
+) -> None:
+    """
+    Print a summary of the time-series interval generation process.
+
+    Args:
+        n (int): Number of successfully processed patients.
+        filter_by_nb_events (int): Number of patients skipped due to event count.
+        missing_event_src (int): Number of patients skipped due to missing sources.
+        filter_by_elapsed_time (int): Number of patients skipped due to elapsed time.
+
+    Returns:
+        None
+    """
+    print(f"Successfully processed time-series intervals for {n} patients.")
+    print(
+        f"Skipping {filter_by_nb_events} patients with less or greater number of events than specified."
+    )
+    print(
+        f"Skipping {missing_event_src} patients due to at least one missing time-series source."
+    )
+    print(
+        f"Skipping {filter_by_elapsed_time} patients due to no measures within elapsed time."
+    )

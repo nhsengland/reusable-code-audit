@@ -1,0 +1,127 @@
+# Source: ESNEFT_diabetes_StephenRicher/scripts/utils.py (Lines 143-268)
+def removeOutlier(
+        data: pd.DataFrame,
+        threshold: float = 3,
+        measures: list = None):
+    """ Remove outliers using IQR method """
+    if measures is None:
+        measures = ([
+            'HbA1c', 'BMI', 'HbA1c (IFCC)', 'GFR',
+            'Diastolic BP', 'Urine Microalbumin',
+            'Hemoglobin', 'GFR-Cockcroft'
+        ])
+    data = data.copy()
+    for measure in measures:
+        valid = data['CTV3Desc'] == measure
+        values = data.loc[valid, 'RecordingValue']
+        Q1, Q3 = np.percentile(values , [25,75])
+        IQR = Q3 - Q1
+        lower = Q1 - (IQR * 3)
+        upper = Q3 + (IQR * 3)
+        outlier = (data['RecordingValue'] < lower) | (data['RecordingValue'] > upper)
+        data.loc[valid & outlier, 'RecordingValue'] = np.nan
+    return data
+
+
+type1_default = ([
+    'Type 1 Diabetes',
+    'Type I diabetic dietary review',
+    'Type I diabetes mellitus without complication',
+    'Type I diabetes mellitus - poor control',
+    'Type I diabetes mellitus with retinopathy'
+])
+
+
+type2_default = ([
+    'Type 2 Diabetes',
+    'Type II diabetic dietary review',
+    'Type II diabetes mellitus with persistent proteinuria',
+    'Type II diabetes mellitus - poor control',
+    'Type II diabetes mellitus with retinopathy'
+])
+
+
+def summariseByPatient(
+        data: pd.DataFrame, type1: list = None,
+        type2: list = None):
+    events = data['CTV3Desc'].unique()
+    type1 = type1_default if type1 is None else type1
+    type2 = type2_default if type2 is None else type2
+    summary = (
+        data.groupby('patientID')
+        .apply(_summarise, events=events, type1=type1, type2=type2)
+        .apply(lambda x: pd.Series(x))
+    )
+    return summary
+
+
+def _summarise(x, events, type1, type2):
+    day = pd.Timedelta('1d')
+    summary = {}
+    for event in events:
+        if event == 'Date of diagnosis':
+            continue
+        sub = x.loc[x['CTV3Desc'] == event, 'CodeEventDate'].dropna()
+        if (len(sub) < 2) or (sub.max() - sub.min() == 0):
+            summary[f'{event}-meanWait'] = np.nan
+        else:
+            span = (sub.max() - sub.min()) / day
+            summary[f'{event}-meanWait'] = span / len(sub)
+    summary['T1D'] = (x['CTV3Desc'].isin(type1)).any()
+    summary['T2D'] = (x['CTV3Desc'].isin(type2)).any()
+    sub = x.loc[(x['CTV3Desc'] != 'Date of diagnosis')]
+    summary['firstReferral'] = sub['ReferralDate'].dropna().min()
+    diagnosis = x.loc[(x['CTV3Desc'] == 'Date of diagnosis'), 'CodeEventDate']
+    if diagnosis.empty:
+        summary['DateOfDiagnosis'] = pd.NaT
+        summary['DaysToReferral'] = np.nan
+    else:
+        summary['DateOfDiagnosis'] = diagnosis.values[0]
+        if pd.isna(summary['firstReferral']):
+             summary['DaysToReferral'] = np.nan
+        else:
+            summary['DaysToReferral'] = (
+                summary['firstReferral'] - summary['DateOfDiagnosis']) / day
+            # Negative dates likely entry error
+            if summary['DaysToReferral'] < 0:
+                summary['DaysToReferral'] = np.nan
+    codeEvents = sub['CodeEventDate'].dropna()
+    totalAppointments = len(codeEvents.unique())
+    recordSpan = codeEvents.max() - codeEvents.min()
+    if (totalAppointments < 2) or (recordSpan == 0):
+        summary['TimeAtCentre'] = np.nan
+        summary['DaysBetweenAppointment'] = np.nan
+    else:
+        summary['TimeAtCentre'] = recordSpan / day
+        summary['DaysBetweenAppointment'] = (
+            summary['TimeAtCentre'] / totalAppointments
+        )
+    measures = ([
+        'BMI', 'HbA1c (IFCC)', 'GFR', 'HbA1c',
+        'Diastolic BP', 'Urine Microalbumin'
+    ])
+    for measure in measures:
+        byMeasure = sub.loc[
+              (sub['CTV3Desc'] == measure)
+            & (sub['RecodingLabel'] != 'None')
+            & (sub['RecordingValue'].notna())
+        ].sort_values('CodeEventDate')
+        if byMeasure.empty:
+            summary[f'{measure}-change'] = np.nan
+            summary[f'{measure}-mean'] = np.nan
+            summary[f'{measure}-initial'] = np.nan
+            summary[f'{measure}-final'] = np.nan
+        else:
+            span = byMeasure['CodeEventDate'].max() - byMeasure['CodeEventDate'].min()
+            span = span / day
+            summary[f'{measure}-mean'] = byMeasure['RecordingValue'].mean()
+            summary[f'{measure}-initial'] = byMeasure['RecordingValue'].head(1)[0]
+            summary[f'{measure}-final'] = byMeasure['RecordingValue'].tail(1)[0]
+            # Only compute change for records over 3 months old
+            if span > 90:
+                summary[f'{measure}-change'] = (
+                    (summary[f'{measure}-final'] - summary[f'{measure}-initial']) / span
+            )
+            else:
+                summary[f'{measure}-change'] = np.nan
+    return summary

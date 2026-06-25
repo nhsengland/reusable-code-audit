@@ -1,0 +1,53 @@
+# Source: evalsense/evalsense/datasets/dataset_config.py (Lines 250-301)
+class DatasetConfig:
+    """Configuration for a dataset.
+
+    Attributes:
+        dataset_name (str): The name of the dataset.
+        dataset_metadata (DatasetMetadata): The metadata for the dataset.
+    """
+
+    def __init__(self, dataset_name: str):
+        """Initializes a new DatasetConfig.
+
+        Args:
+            dataset_name (str): The name of the dataset.
+        """
+        self.dataset_name = dataset_name
+        config = {}
+        for config_path in DATASET_CONFIG_PATHS:
+            config_file = config_path / (to_safe_filename(dataset_name) + ".yml")
+            if config_file.exists():
+                try:
+                    with open(config_file, "r") as f:
+                        new_config = yaml.safe_load(f)
+                    config = deep_update(config, new_config)
+                except Exception as e:
+                    warnings.warn(
+                        f"Failed to load dataset config from {config_file}: {e}"
+                    )
+                    continue
+        self.dataset_metadata = DatasetMetadata(**config)
+
+    def get_files(self, version: str, splits: list[str]) -> dict[str, FileMetadata]:
+        """Gets the files for the specified version and splits.
+
+        Args:
+            version (str): The name of the version.
+            splits (list[str]): The names of the splits.
+
+        Returns:
+            (dict[str, FileMetadata]): The files for the version and splits.
+        """
+        return self.dataset_metadata.get_files(version, splits)
+
+    def get_splits(self, version: str) -> dict[str, SplitMetadata]:
+        """Gets the dataset splits for the specified version.
+
+        Args:
+            version (str): The name of the version.
+
+        Returns:
+            (dict[str, SplitMetadata]): The splits for the version.
+        """
+        return self.dataset_metadata.get_splits(version)

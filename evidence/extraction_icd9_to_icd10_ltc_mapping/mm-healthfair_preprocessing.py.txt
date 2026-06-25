@@ -1,0 +1,216 @@
+# Source: mm-healthfair/src/utils/preprocessing.py (Lines 25-239)
+def preproc_icd_module(
+    diagnoses: pl.DataFrame | pl.LazyFrame,
+    icd_map_path: str = "../config/icd9to10.txt",
+    map_code_colname: str = "diagnosis_code",
+    only_icd10: bool = True,
+    ltc_dict_path: str = "../outputs/icd10_codes.json",
+    verbose=True,
+    use_lazy: bool = False,
+) -> pl.DataFrame:
+    """
+    Process a diagnoses dataset with ICD codes, mapping ICD-9 to ICD-10 and generating features for long-term conditions.
+    Implementation is taken from the MIMIC-IV preprocessing pipeline provided by Gupta et al. (https://github.com/healthylaife/MIMIC-IV-Data-Pipeline/tree/main).
+
+    Args:
+        diagnoses (pl.DataFrame | pl.LazyFrame): Diagnoses data.
+        icd_map_path (str): Path to ICD-9 to ICD-10 mapping file.
+        map_code_colname (str): Column name for ICD code in mapping.
+        only_icd10 (bool): If True, only keep ICD-10 codes.
+        ltc_dict_path (str): Path to JSON with LTC code groups.
+        verbose (bool): If True, print summary statistics.
+        use_lazy (bool): If True, return a LazyFrame.
+
+    Returns:
+        pl.DataFrame or pl.LazyFrame: Processed diagnoses data.
+    """
+
+    if isinstance(diagnoses, pl.LazyFrame):
+        diagnoses = diagnoses.collect()
+
+    def standardize_icd(mapping, df, root=False, icd_num=9):
+        """Takes an ICD9 -> ICD10 mapping table and a module dataframe;
+        adds column with converted ICD10 column"""
+
+        def icd_9to10(icd):
+            # If root is true, only map an ICD 9 -> 10 according to the ICD9's root (first 3 digits)
+            if root:
+                icd = icd[:3]
+            try:
+                # Many ICD-9's do not have a 1-to-1 mapping; get first index of mapped codes
+                return (
+                    mapping.filter(pl.col(map_code_colname) == icd)
+                    .select("icd10cm")
+                    .to_series()[0]
+                )
+            except IndexError:
+                # Handle case where no mapping is found for the ICD code
+                return np.nan
+
+        # Create new column with original codes as default
+        col_name = "icd10_convert"
+        if root:
+            col_name = "root_" + col_name
+        df = df.with_columns(pl.col("icd_code").alias(col_name).cast(pl.Utf8))
+
+        # Convert ICD9 codes to ICD10 in a vectorized manner
+        icd9_codes = (
+            df.filter(pl.col("icd_version") == icd_num)
+            .select("icd_code")
+            .unique()
+            .to_series()
+            .to_list()
+        )
+        icd9_to_icd10_map = {code: icd_9to10(code) for code in icd9_codes}
+
+        df = df.with_columns(
+            pl.when(pl.col("icd_version") == icd_num)
+            .then(
+                pl.col("icd_code").apply(
+                    lambda x: icd9_to_icd10_map.get(x, np.nan), return_dtype=pl.Utf8
+                )
+            )
+            .otherwise(pl.col(col_name))
+            .alias(col_name)
+        )
+
+        if only_icd10:
+            # Column for just the roots of the converted ICD10 column
+            df = df.with_columns(
+                pl.col(col_name)
+                .apply(
+                    lambda x: x[:3] if isinstance(x, str) else np.nan,
+                    return_dtype=pl.Utf8,
+                )
+                .alias("root")
+            )
+
+        return df
+
+    # Optional ICD mapping if argument passed
+    if icd_map_path:
+        icd_map = read_icd_mapping(icd_map_path)
+        diagnoses = standardize_icd(icd_map, diagnoses, root=True)
+        diagnoses = diagnoses.filter(pl.col("root_icd10_convert").is_not_null())
+        if verbose:
+            print(
+                "# unique ICD-10 codes (After converting ICD-9 to ICD-10)",
+                diagnoses.select("root_icd10_convert").n_unique(),
+            )
+            print(
+                "# unique ICD-10 codes (After clinical grouping ICD-10 codes)",
+                diagnoses.select("root").n_unique(),
+            )
+            print("# Unique patients:  ", diagnoses.select("hadm_id").n_unique())
+
+    diagnoses = diagnoses.select(
+        ["subject_id", "hadm_id", "seq_num", "long_title", "root_icd10_convert"]
+    )
+    #### Create features for long-term chronic conditions
+    if ltc_dict_path:
+        with open(ltc_dict_path) as json_dict:
+            ltc_dict = json.load(json_dict)
+        ### Initialise long-term condition column
+        diagnoses = diagnoses.with_columns(
+            pl.lit("Undefined").alias("ltc_code").cast(pl.Utf8)
+        )
+        print("Applying LTC coding to diagnoses...")
+        for ltc_group, codelist in tqdm(ltc_dict.items()):
+            # print("Group:", ltc_group, "Codes:", codelist)
+            for code in codelist:
+                diagnoses = diagnoses.with_columns(
+                    pl.when(pl.col("root_icd10_convert").str.starts_with(code))
+                    .then(pl.lit(ltc_group))
+                    .otherwise(pl.col("ltc_code"))
+                    .alias("ltc_code")
+                    .cast(pl.Utf8)
+                )
+
+    return diagnoses.lazy() if use_lazy else diagnoses
+
+
+def get_ltc_features(
+    admits_last: pl.DataFrame | pl.LazyFrame,
+    diagnoses: pl.DataFrame | pl.LazyFrame,
+    ltc_dict_path: str = "../outputs/icd10_codes.json",
+    mm_cutoff: int = 1,
+    cmm_cutoff: int = 3,
+    verbose=True,
+    use_lazy: bool = False,
+) -> pl.DataFrame:
+    """
+    Generate features for long-term conditions and multimorbidity from ICD-10 diagnoses and custom LTC dictionary.
+
+    Args:
+        admits_last (pl.DataFrame | pl.LazyFrame): Admissions data.
+        diagnoses (pl.DataFrame | pl.LazyFrame): ICD-10 Diagnoses data.
+        ltc_dict_path (str): Path to JSON with LTC code groups.
+        mm_cutoff (int): Threshold for multimorbidity.
+        cmm_cutoff (int): Threshold for complex multimorbidity.
+        verbose (bool): If True, print summary statistics.
+        use_lazy (bool): If True, return a LazyFrame.
+
+    Returns:
+        pl.DataFrame or pl.LazyFrame: Admissions data with long-term condition count features.
+    """
+
+    if isinstance(diagnoses, pl.LazyFrame):
+        diagnoses = diagnoses.collect()
+    if isinstance(diagnoses, pl.LazyFrame):
+        admits_last = admits_last.collect()
+
+    ### Comorbidity history
+    diag_flat = diagnoses.filter(pl.col("ltc_code") != "Undefined")
+    if verbose:
+        print(
+            "Number of previous diagnoses recorded in historical ED metadata:",
+            diagnoses.shape[0],
+            diagnoses["subject_id"].n_unique(),
+        )
+
+    ### Create list for each row in ltc_code column
+    diag_flat = diag_flat.groupby("subject_id").agg(
+        pl.col("ltc_code").apply(set).alias("ltc_code")
+    )
+
+    ### If dict is populated generate categorical columns for each long-term condition
+    if ltc_dict_path:
+        with open(ltc_dict_path) as json_dict:
+            ltc_dict = json.load(json_dict)
+        for ltc_code, _ in ltc_dict.items():
+            diag_flat = diag_flat.with_columns(
+                pl.col("ltc_code")
+                .apply(lambda x, ltc=ltc_code: 1 if ltc in x else 0)
+                .alias(ltc_code)
+            )
+
+    ### Create features for multimorbidity
+    diag_flat = diag_flat.with_columns(
+        [
+            pl.col("ltc_code")
+            .apply(contains_both_ltc_types, return_dtype=pl.Int8)
+            .alias("phys_men_multimorbidity"),
+            pl.col("ltc_code")
+            .apply(len, return_dtype=pl.Int8)
+            .alias("n_unique_conditions"),
+            pl.when(pl.col("ltc_code").apply(len, return_dtype=pl.Int8) > mm_cutoff)
+            .then(1)
+            .otherwise(0)
+            .alias("is_multimorbid"),
+            pl.when(pl.col("ltc_code").apply(len, return_dtype=pl.Int8) > cmm_cutoff)
+            .then(1)
+            .otherwise(0)
+            .alias("is_complex_multimorbid"),
+        ]
+    )
+
+    ### Merge with base patient data
+    admits_last = admits_last.join(diag_flat, on="subject_id", how="left")
+    admits_last = admits_last.with_columns(
+        [
+            pl.col(col).cast(pl.Int8).fill_null(0)
+            for col in diag_flat.drop(["subject_id", "ltc_code"]).columns
+        ]
+    )
+
+    return admits_last.lazy() if use_lazy else admits_last

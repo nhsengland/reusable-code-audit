@@ -1,0 +1,41 @@
+# Source: ELM4PSIR/utils/prepare_classification_datasets.py (Lines 31-70)
+class LMTextData:
+    def __init__(
+        self,
+        data_path: str = None,
+        test_notes_path: str = None,
+        save_path=None,
+        admin_language=None,
+        replacement_map=None,
+        remove_punctuation=True,
+        sample=True,
+        sample_size=500,
+        seed=41,
+        text_col=None,
+        dataset_names_map={
+            "Key.PD09": "severity",
+            "Key.IN05": "type",
+            "Key.RP02": "location",
+        },
+        process_individually=False,
+        binary_transform=False,
+    ):
+        self.admin_language = admin_language
+        self.sample = sample
+        self.sample_size = sample_size
+        self.data_path = data_path
+        self.test_notes_path = test_notes_path
+        self.save_path = save_path
+        self.admin_language = admin_language
+        self.seed = seed
+        self.text_col = text_col
+        self.remove_punctuation = remove_punctuation
+        self.replacement_map = replacement_map
+        self.dataset_names_map = dataset_names_map
+        self.process_individually = process_individually
+        self.binary_transform = binary_transform
+
+        # make save_dirs if not exist
+        for dir in [self.save_path]:
+            if not os.path.exists(f"{dir}"):
+                os.makedirs(f"{dir}")
